@@ -284,10 +284,11 @@ BarWidget {
       }
     }
 
-    // Live waveform, only while audio is actually moving — a Row skips
-    // invisible children, so the chip shrinks back down on its own when idle.
-    // Gated on `playing`, not just `hasTrack`: at rest every band sits at zero
-    // and the bars collapse into a meaningless dotted line next to the title.
+    // Live waveform, shown whenever a track is loaded (playing or paused) —
+    // a Row skips invisible children, so the chip shrinks back down on its
+    // own once there's no track at all. BarWave already keeps a thin centre
+    // line per bar at rest, so it reads fine at zero level instead of
+    // needing to be gated on `playing`.
     Item {
       width: Style.space(6)
       height: 1
@@ -296,7 +297,7 @@ BarWidget {
     BarWave {
       id: waveform
       anchors.verticalCenter: parent.verticalCenter
-      visible: root.hasTrack && root.playing && !root.bar.vertical
+      visible: root.hasTrack && !root.bar.vertical
       levels: root.ytService ? root.ytService.spectrumBands : []
       color: root.bar.barForeground
       maxHeight: Math.max(Style.space(10), root.barSize * 0.42)
