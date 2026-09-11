@@ -207,7 +207,7 @@ BarWidget {
       foreground: root.bar.barForeground
       fixedWidth: Style.space(20)
       fixedHeight: root.barSize
-      tooltipText: root.hasTrack ? (root.playing ? "Pause" : "Play") : "YT Widget"
+      tooltipText: root.hasTrack ? (root.playing ? "Pause" : "Play") : "Nothing playing"
       onPressed: function(mouseButton) {
         if (mouseButton === Qt.LeftButton && root.ytService) root.ytService.togglePlayback()
       }
@@ -244,7 +244,7 @@ BarWidget {
 
       readonly property string fullText: root.hasTrack
         ? Api.barTrackText(root.title, root.artist, true, true)
-        : "YT Widget"
+        : "Nothing playing"
       readonly property real gapPx: Style.space(28)
       readonly property bool overflowing: titleA.implicitWidth > width + 1
 
@@ -325,7 +325,7 @@ BarWidget {
       root.ytService.setVolume(Math.max(0, Math.min(100, root.ytService.volume + delta)))
     }
     onEntered: if (root.bar) root.bar.showTooltip(root,
-      root.hasTrack ? (root.title + (root.artist ? " — " + root.artist : "")) : "YT Widget")
+      root.hasTrack ? (root.title + (root.artist ? " — " + root.artist : "")) : "Nothing playing")
     onExited: if (root.bar) root.bar.hideTooltip(root)
   }
 
