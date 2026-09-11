@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "id": "omar.ytwidget",
+  "name": "YT Widget",
+  "version": "0.1.0",
+  "author": "omar",
+  "license": "MIT",
+  "description": "Native plain-YouTube player for Omarchy. Search, playlists, queue, EQ, spectrum, mini player. Local mpv + yt-dlp, no browser, no login.",
+  "kinds": [
+    "service",
+    "bar-widget",
+    "panel"
+  ],
+  "activation": "on-demand",
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml",
+    "panel": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "YT Widget",
+    "description": "Native YouTube player with search, queue, EQ, and local mpv playback.",
+    "category": "Media",
+    "aliases": [
+      "youtube",
+      "yt",
+      "ytwidget"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "idleShutdownMinutes": 15,
+      "maxWidth": 150,
+      "crossfadeMs": 500,
+      "subtitleLang": "en",
+      "videoQuality": 1080,
+      "videoWindowPercent": 70,
+      "videoGpu": "integrated"
+    },
+    "schema": [
+      {
+        "key": "idleShutdownMinutes",
+        "type": "integer",
+        "label": "Stop local playback when idle",
+        "min": 0,
+        "max": 1440,
+        "step": 5,
+        "defaultValue": 15,
+        "description": "Minutes. Use 0 to keep the backend running after you pause."
+      },
+      {
+        "key": "maxWidth",
+        "type": "integer",
+        "label": "Bar title width",
+        "min": 90,
+        "max": 480,
+        "step": 10,
+        "defaultValue": 150
+      },
+      {
+        "key": "crossfadeMs",
+        "type": "integer",
+        "label": "Crossfade between tracks",
+        "min": 0,
+        "max": 3000,
+        "step": 100,
+        "defaultValue": 500,
+        "description": "Milliseconds. The outgoing track fades down over its last moments and the next one fades up. Use 0 for hard cuts."
+      },
+      {
+        "key": "subtitleLang",
+        "type": "string",
+        "label": "Subtitle language",
+        "defaultValue": "en",
+        "description": "Language code preferred when the video window loads subtitles, e.g. en, es, ar. Falls back to auto-generated captions."
+      },
+      {
+        "key": "videoQuality",
+        "type": "integer",
+        "label": "Video quality",
+        "min": 144,
+        "max": 2160,
+        "step": 1,
+        "defaultValue": 1080,
+        "description": "Preferred height in pixels for the video window. The closest available rung at or below this is used, and you can change it live from the Quality menu while watching."
+      },
+      {
+        "key": "videoWindowPercent",
+        "type": "integer",
+        "label": "Video window size",
+        "min": 20,
+        "max": 100,
+        "step": 5,
+        "defaultValue": 70,
+        "description": "Percent of the screen the video window may fill when it opens. It is never scaled up past the video's own size."
+      },
+      {
+        "key": "videoGpu",
+        "type": "string",
+        "label": "Video GPU",
+        "defaultValue": "integrated",
+        "description": "\"integrated\" pins the video window to the built-in GPU, which starts faster and more consistently and leaves a discrete card asleep. Use \"default\" to let mpv choose (it prefers the discrete GPU)."
+      }
+    ]
+  }
+}

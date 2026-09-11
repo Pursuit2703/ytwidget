@@ -1,0 +1,9 @@
+[Unit]
+Description=YT Widget playback backend (mpv + yt-dlp, no browser)
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/ytwidget-server
+Restart=on-failure
+RestartSec=2
