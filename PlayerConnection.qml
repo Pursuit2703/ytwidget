@@ -50,6 +50,7 @@ Item {
   readonly property var eqPresets: eq.presets || []
   property int crossfadeMs: 500
   property bool videoActive: false
+  property bool videoPlaying: false
   property real videoSpeed: 1.0
   property int videoHeight: 0
   property var videoHeights: []
@@ -83,6 +84,7 @@ Item {
     if (state.eq) eq = state.eq
     if (state.crossfade_ms !== undefined) crossfadeMs = Number(state.crossfade_ms)
     videoActive = !!state.video_active
+    videoPlaying = !!state.video_playing
     if (state.video_speed !== undefined) videoSpeed = Number(state.video_speed)
     if (state.video_height !== undefined) videoHeight = Number(state.video_height)
     if (state.video_heights !== undefined) videoHeights = state.video_heights || []

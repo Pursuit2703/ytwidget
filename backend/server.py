@@ -105,7 +105,8 @@ class Backend:
         self.video_gpu = "integrated"
         self.video_resolver = video_mod.VideoResolver(self.sub_lang)
         self.video = VideoWindow(runtime_dir(), on_closed=self._on_video_closed,
-                                 on_ready=self._on_video_ready)
+                                 on_ready=self._on_video_ready,
+                                 on_pause_changed=self._on_video_pause_changed)
         self.local_history = play_history.load()
         self._last_broadcast = 0.0
         self._last_queue_save = 0.0
@@ -134,6 +135,7 @@ class Backend:
             "idle_minutes": self.idle_minutes,
             "crossfade_ms": self.player.crossfade_ms,
             "video_active": self.video.active,
+            "video_playing": self.video.active and not self.video.paused,
             "video_id": self.video.video_id if self.video.active else "",
             "video_speed": self.video.speed,
             "video_height": self.video.height,
@@ -219,6 +221,12 @@ class Backend:
             pass
         finally:
             self.broadcast()
+
+    def _on_video_pause_changed(self) -> None:
+        """mpv's pause state flipped — either from our own command or the
+        user hitting space/clicking inside the window directly. Either way
+        the UI's play/pause indicator needs to catch up."""
+        self.broadcast()
 
     def _on_video_closed(self, video_id: str, position_ms: int) -> None:
         """The video window is gone — give the audio deck the playhead back.
@@ -457,13 +465,13 @@ class Backend:
                 "loaded": len(items),
             }
         if command == "play":
-            self.player.play()
+            self.video.play() if self.video.active else self.player.play()
             return self.state()
         if command == "pause":
-            self.player.pause()
+            self.video.pause() if self.video.active else self.player.pause()
             return self.state()
         if command == "toggle":
-            self.player.toggle()
+            self.video.toggle() if self.video.active else self.player.toggle()
             return self.state()
         if command == "stop":
             self.player.stop()

@@ -443,16 +443,23 @@ class VideoWindow:
 
     def __init__(self, runtime_dir: Path,
                  on_closed: Callable[[str, int], None] | None = None,
-                 on_ready: Callable[[str], None] | None = None):
+                 on_ready: Callable[[str], None] | None = None,
+                 on_pause_changed: Callable[[], None] | None = None):
         self.ipc_path = Path(runtime_dir) / "mpv-video.sock"
         self.on_closed = on_closed or (lambda _video_id, _position_ms: None)
         # Fires when the window actually has playback running, which is
         # several seconds after launch: opening two network streams and
         # spinning up the decoder dominates, not the metadata lookup.
         self.on_ready = on_ready or (lambda _video_id: None)
+        # Fires whenever mpv's own pause state flips, whether from our
+        # commands or the user hitting space/clicking inside the window
+        # directly — that's the only way this ever finds out about the
+        # latter, since mpv owns its own play/pause state once open.
+        self.on_pause_changed = on_pause_changed or (lambda: None)
         self.process: subprocess.Popen | None = None
         self.video_id = ""
         self.position_ms = 0
+        self.paused = False
         self.speed = 1.0
         self.height = 0
         self.heights: list[int] = []
@@ -540,6 +547,7 @@ class VideoWindow:
                 stderr.close()
             self.video_id = video_id
             self.position_ms = max(0, int(start_ms or 0))
+            self.paused = False
             self._announced_ready = False
             self._sub_attached = not bool(
                 pick_subtitle((resolved or {}).get("subs") or {}, self.sub_lang))
@@ -601,6 +609,15 @@ class VideoWindow:
     def seek(self, position_ms: int) -> bool:
         return self.command(
             ["seek", max(0, int(position_ms or 0)) / 1000.0, "absolute"])
+
+    def play(self) -> bool:
+        return self.command(["set_property", "pause", False])
+
+    def pause(self) -> bool:
+        return self.command(["set_property", "pause", True])
+
+    def toggle(self) -> bool:
+        return self.command(["cycle", "pause"])
 
     def set_speed(self, speed: float) -> float:
         """Playback rate. Applies live — no reload, no re-resolve."""
@@ -668,6 +685,9 @@ class VideoWindow:
                 sock.sendall(
                     (json.dumps({"command": ["observe_property", 1, "time-pos"],
                                  "request_id": 1}) + "\n").encode("utf-8"))
+                sock.sendall(
+                    (json.dumps({"command": ["observe_property", 2, "pause"],
+                                 "request_id": 2}) + "\n").encode("utf-8"))
             except OSError:
                 sock.close()
                 sock = None
@@ -718,6 +738,15 @@ class VideoWindow:
                                 self.on_ready(video_id)
                             except Exception:
                                 pass
+                elif message.get("event") == "property-change" \
+                        and message.get("name") == "pause":
+                    value = message.get("data")
+                    if isinstance(value, bool) and value != self.paused:
+                        self.paused = value
+                        try:
+                            self.on_pause_changed()
+                        except Exception:
+                            pass
         with self._sock_lock:
             self._sock = None
         if sock is not None:

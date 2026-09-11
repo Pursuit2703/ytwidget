@@ -19,6 +19,9 @@ Item {
 
   readonly property string lifecycle: conn.lifecycle
   readonly property bool playing: conn.playing
+  // See BarWidget.qml's `playing` alias for why this can't just be `playing`
+  // while a video window is open.
+  readonly property bool effectivePlaying: conn.videoActive ? conn.videoPlaying : conn.playing
   readonly property bool resolving: conn.resolving
   readonly property bool shuffle: conn.shuffle
   readonly property string repeat: conn.repeat
@@ -38,6 +41,7 @@ Item {
   readonly property var eqPresets: conn.eqPresets
   readonly property int crossfadeMs: conn.crossfadeMs
   readonly property bool videoActive: conn.videoActive
+  readonly property bool videoPlaying: conn.videoPlaying
   readonly property real videoSpeed: conn.videoSpeed
   readonly property int videoHeight: conn.videoHeight
   readonly property var videoHeights: conn.videoHeights

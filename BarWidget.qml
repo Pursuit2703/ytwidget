@@ -20,7 +20,12 @@ BarWidget {
   PlayerConnection { id: conn }
 
   readonly property bool hasTrack: !!(ytService && ytService.hasTrack)
-  readonly property bool playing: !!(ytService && ytService.playing)
+  // While the video window is open, the audio deck is deliberately paused
+  // (they'd otherwise both play sound) — so "playing" has to come from the
+  // video window's own mpv state, not the deck's, or the mini player reads
+  // as paused/idle the whole time a video is actually up and playing.
+  readonly property bool playing: !!(ytService &&
+    (ytService.videoActive ? ytService.videoPlaying : ytService.playing))
   readonly property string title: ytService ? ytService.trackTitle : ""
   readonly property string artist: ytService ? ytService.trackArtist : ""
   // Tighter than before so the chip stays compact now that the waveform

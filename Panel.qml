@@ -538,10 +538,10 @@ Item {
             Chicklet { iconText: root.iconPrev; tooltipText: "Previous"
               onClicked: root.service && root.service.previous() }
             Chicklet {
-              iconText: root.service && root.service.playing ? root.iconPause : root.iconPlay
+              iconText: root.service && root.service.effectivePlaying ? root.iconPause : root.iconPlay
               iconSize: Style.font.iconLarge
               chickletSize: Style.space(38)
-              tooltipText: root.service && root.service.playing ? "Pause" : "Play"
+              tooltipText: root.service && root.service.effectivePlaying ? "Pause" : "Play"
               onClicked: root.service && root.service.togglePlayback()
             }
             Chicklet { iconText: root.iconNext; tooltipText: "Next"
