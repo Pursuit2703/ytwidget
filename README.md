@@ -26,7 +26,7 @@ shells out to `mpv` and `yt-dlp` directly.
 ## Install
 
 ```sh
-git clone <this repo> ~/.config/omarchy/plugins/omar.ytwidget
+git clone https://github.com/Pursuit2703/ytwidget.git ~/.config/omarchy/plugins/omar.ytwidget
 ~/.config/omarchy/plugins/omar.ytwidget/scripts/setup.sh
 ```
 
