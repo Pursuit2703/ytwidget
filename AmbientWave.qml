@@ -15,7 +15,7 @@ Item {
 
   property var levels: []
   property color color: Color.foreground
-  property real heightFraction: 0.40
+  property real heightFraction: 0.45
 
   // Screen-space [start, end] ranges the bar leaves empty, measured by
   // BarWidget from the bar's own scene graph. A bar outside every range is
@@ -86,8 +86,12 @@ Item {
         // crashed the shell.
         visible: root.inGap(centre)
         x: index * root.pitch
-        // Grows up from the bottom edge, away from the bar's own text.
-        y: parent.height - height
+        // Centred on the bar's midline, growing both ways, the same as the
+        // chip's own bars. Anchoring to the bottom edge instead left the
+        // spectrum sitting below everything else in the bar, which is
+        // vertically centred, and it read as a separate strip underneath
+        // rather than as part of the row.
+        y: (parent.height - height) / 2
         width: root.barWidth
         height: Math.max(1, root.maxBarHeight * root.bandAt(root.bandFor(index)))
         radius: width / 2

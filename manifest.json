@@ -39,7 +39,7 @@
       "videoGpu": "integrated",
       "ambientWave": false,
       "ambientOpacity": 0.55,
-      "ambientHeight": 0.4
+      "ambientHeight": 0.45
     },
     "schema": [
       {
