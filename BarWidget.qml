@@ -39,11 +39,15 @@ BarWidget {
   // Ambient full-bar spectrum. Off by default: it paints across the whole
   // screen width, which is a bigger change to someone's desktop than a bar
   // widget has any business making uninvited.
-  readonly property bool ambientEnabled: String(root.setting("ambientWave", "false")) === "true"
-  readonly property real ambientOpacity: Math.max(0, Math.min(1,
-    Number(root.setting("ambientOpacity", 0.55)) || 0.55))
+  readonly property bool ambientDefault: String(root.setting("ambientWave", "false")) === "true"
+  // The setting is the state it starts in; the music note in the hover
+  // controls flips it for the session. Assigning here deliberately breaks the
+  // binding — that is what makes the button stick until the next restart.
+  property bool ambientEnabled: root.ambientDefault
+  readonly property real ambientOpacity: Math.max(0.05, Math.min(1,
+    (Number(root.setting("ambientOpacity", 55)) || 55) / 100))
   readonly property real ambientHeight: Math.max(0.1, Math.min(1,
-    Number(root.setting("ambientHeight", 0.62)) || 0.62))
+    (Number(root.setting("ambientHeight", 62)) || 62) / 100))
 
   property bool popupOpen: false
   property string miniSearchText: ""
@@ -213,14 +217,19 @@ BarWidget {
     anchors.centerIn: parent
     spacing: Style.space(4)
 
-    // Controls and waveform occupy the exact same slot, crossfading on pill
-    // hover — prev/pause/next on top while hovered, the live waveform
-    // underneath otherwise. The slot is sized to fit whichever is wider so
-    // the pill never resizes when it swaps.
+    // The title and the transport controls occupy the same space, crossfading
+    // on pill hover: the track name at rest, prev/pause/next while hovered.
+    //
+    // There is no separate slot for the controls any more. One held the chip's
+    // waveform, then the playback time, and both were really just filling
+    // space the controls needed — the title is already there and can hand its
+    // own space over. The slot is sized to whichever of the two is wider, so
+    // the pill does not resize as you move onto it and shove the icons beside
+    // it around.
     Item {
       id: mediaSlot
       anchors.verticalCenter: parent.verticalCenter
-      width: Math.max(controlsRow.width, elapsed.implicitWidth)
+      width: Math.max(controlsRow.width, marquee.width)
       height: root.barSize
 
       Row {
@@ -231,6 +240,27 @@ BarWidget {
         opacity: pillHover.hovered ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
 
+        WidgetButton {
+          id: ambientButton
+          bar: root.bar
+          // Plain note when the spectrum is on, the struck-through one when
+          // it is off, dimmed to match. Two signals for the same state, which
+          // is worth it on a glyph this small.
+          text: root.ambientEnabled ? "\u{f075a}" : "\u{f0759}"
+          fontSize: Style.font.bodySmall
+          foreground: root.ambientEnabled
+            ? root.bar.barForeground
+            : Qt.rgba(root.bar.barForeground.r, root.bar.barForeground.g,
+                      root.bar.barForeground.b, 0.40)
+          fixedWidth: Style.space(20)
+          fixedHeight: root.barSize
+          tooltipText: root.ambientEnabled
+            ? "Hide the spectrum across the bar"
+            : "Show the spectrum across the bar"
+          onPressed: function(mouseButton) {
+            if (mouseButton === Qt.LeftButton) root.ambientEnabled = !root.ambientEnabled
+          }
+        }
         WidgetButton {
           id: prevButton
           bar: root.bar
@@ -272,91 +302,65 @@ BarWidget {
         }
       }
 
-      // Playback position, not a second waveform.
+      // Scrolling title. Two copies separated by a gap, scrolled by exactly
+      // one copy-plus-gap, so the second lands where the first started and the
+      // loop is seamless with no visible jump.
       //
-      // The spectrum now runs across the empty parts of the bar, and having a
-      // small copy of it here as well showed the same thing twice. This slot
-      // cannot simply be emptied though: it is sized to whichever of the two
-      // is wider, and the transport controls need 68 units, so dropping the
-      // waveform would leave a hole before the title — and collapsing the slot
-      // instead would resize the pill on every hover and shove the icons to
-      // its right around. Time fills the space at a fixed width and is worth
-      // more at a glance than a duplicate of the spectrum.
-      Text {
-        id: elapsed
-        anchors.centerIn: parent
-        visible: root.hasTrack && !!root.bar && !root.bar.vertical
+      // The earlier marquee here left a stray glyph in the bar. The guards that
+      // prevent that: a hard clip, a width that can never go negative or zero,
+      // scrolling only when the text genuinely overflows, and x reset to 0
+      // whenever it stops — so a partial frame can't be left parked on screen.
+      Item {
+        id: marquee
+        anchors.left: parent.left
         opacity: pillHover.hovered ? 0 : 1
         Behavior on opacity { NumberAnimation { duration: 120 } }
-        textFormat: Text.PlainText
-        text: {
-          if (!root.ytService) return ""
-          var pos = Api.formatTime(root.ytService.positionMs)
-          var dur = root.ytService.durationMs > 0
-            ? Api.formatTime(root.ytService.durationMs) : ""
-          return dur ? pos + " / " + dur : pos
+        anchors.verticalCenter: parent.verticalCenter
+        visible: !root.bar.vertical
+        clip: true
+        height: titleA.implicitHeight
+        width: Math.max(0, Math.min(root.maxLabelWidth, titleA.implicitWidth))
+
+        readonly property string fullText: root.hasTrack
+          ? Api.barTrackText(root.title, root.artist, true, true)
+          : "Nothing playing"
+        readonly property real gapPx: Style.space(28)
+        readonly property bool overflowing: titleA.implicitWidth > width + 1
+
+        Row {
+          id: ticker
+          spacing: marquee.gapPx
+
+          Text {
+            id: titleA
+            textFormat: Text.PlainText
+            text: marquee.fullText
+            color: root.hasTrack && root.playing
+              ? root.bar.barForeground : Qt.darker(root.bar.barForeground, 1.5)
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.body
+          }
+          Text {
+            textFormat: Text.PlainText
+            visible: marquee.overflowing
+            text: marquee.fullText
+            color: titleA.color
+            font.family: titleA.font.family
+            font.pixelSize: titleA.font.pixelSize
+          }
         }
-        color: root.bar ? root.bar.barForeground : "white"
-        font.family: root.bar ? root.bar.fontFamily : Style.font.family
-        font.pixelSize: Style.font.caption
-      }
-    }
 
-    // Scrolling title. Two copies separated by a gap, scrolled by exactly
-    // one copy-plus-gap, so the second lands where the first started and the
-    // loop is seamless with no visible jump.
-    //
-    // The earlier marquee here left a stray glyph in the bar. The guards that
-    // prevent that: a hard clip, a width that can never go negative or zero,
-    // scrolling only when the text genuinely overflows, and x reset to 0
-    // whenever it stops — so a partial frame can't be left parked on screen.
-    Item {
-      id: marquee
-      anchors.verticalCenter: parent.verticalCenter
-      visible: !root.bar.vertical
-      clip: true
-      height: titleA.implicitHeight
-      width: Math.max(0, Math.min(root.maxLabelWidth, titleA.implicitWidth))
-
-      readonly property string fullText: root.hasTrack
-        ? Api.barTrackText(root.title, root.artist, true, true)
-        : "Nothing playing"
-      readonly property real gapPx: Style.space(28)
-      readonly property bool overflowing: titleA.implicitWidth > width + 1
-
-      Row {
-        id: ticker
-        spacing: marquee.gapPx
-
-        Text {
-          id: titleA
-          textFormat: Text.PlainText
-          text: marquee.fullText
-          color: root.hasTrack && root.playing
-            ? root.bar.barForeground : Qt.darker(root.bar.barForeground, 1.5)
-          font.family: root.bar.fontFamily
-          font.pixelSize: Style.font.body
+        NumberAnimation {
+          id: scrollAnim
+          target: ticker
+          property: "x"
+          running: marquee.overflowing && marquee.visible
+          loops: Animation.Infinite
+          from: 0
+          to: -(titleA.implicitWidth + marquee.gapPx)
+          duration: Math.max(4000, (titleA.implicitWidth + marquee.gapPx) * 22)
+          onRunningChanged: if (!running) ticker.x = 0
         }
-        Text {
-          textFormat: Text.PlainText
-          visible: marquee.overflowing
-          text: marquee.fullText
-          color: titleA.color
-          font.family: titleA.font.family
-          font.pixelSize: titleA.font.pixelSize
-        }
-      }
-
-      NumberAnimation {
-        id: scrollAnim
-        target: ticker
-        property: "x"
-        running: marquee.overflowing && marquee.visible
-        loops: Animation.Infinite
-        from: 0
-        to: -(titleA.implicitWidth + marquee.gapPx)
-        duration: Math.max(4000, (titleA.implicitWidth + marquee.gapPx) * 22)
-        onRunningChanged: if (!running) ticker.x = 0
       }
     }
   }

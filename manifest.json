@@ -38,8 +38,8 @@
       "videoWindowPercent": 70,
       "videoGpu": "integrated",
       "ambientWave": false,
-      "ambientOpacity": 0.55,
-      "ambientHeight": 0.62
+      "ambientOpacity": 55,
+      "ambientHeight": 62
     },
     "schema": [
       {
@@ -104,6 +104,33 @@
         "label": "Video GPU",
         "defaultValue": "integrated",
         "description": "\"integrated\" pins the video window to the built-in GPU, which starts faster and more consistently and leaves a discrete card asleep. Use \"default\" to let mpv choose (it prefers the discrete GPU)."
+      },
+      {
+        "key": "ambientWave",
+        "type": "boolean",
+        "label": "Spectrum across the bar",
+        "defaultValue": false,
+        "description": "Draw the spectrum in the empty parts of the bar while something is playing. The music note in the widget's hover controls toggles it for the session; this is the state it starts in."
+      },
+      {
+        "key": "ambientOpacity",
+        "type": "integer",
+        "label": "Bar spectrum opacity",
+        "min": 5,
+        "max": 100,
+        "step": 5,
+        "defaultValue": 55,
+        "description": "Percent."
+      },
+      {
+        "key": "ambientHeight",
+        "type": "integer",
+        "label": "Bar spectrum height",
+        "min": 10,
+        "max": 100,
+        "step": 5,
+        "defaultValue": 62,
+        "description": "Percent of the bar's height at full level."
       }
     ]
   }
