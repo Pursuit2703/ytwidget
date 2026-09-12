@@ -533,6 +533,43 @@ BarWidget {
     onTriggered: root.recomputeAmbientGaps()
   }
 
+  // Whether the plugin is making any sound at this instant.
+  //
+  // `playing` alone is not enough to decide whether to draw. It stays true
+  // across a track change while yt-dlp resolves the next URL, which is three
+  // or four seconds with mpv's stream gone — the bars sit frozen at their
+  // floor with the strip still faded in, which reads as the visualiser being
+  // stuck on after the music stopped. It also stays true through any future
+  // state bug of the kind that already cost us a stalled play button.
+  readonly property bool ambientAudible: {
+    var bands = ytService ? ytService.spectrumBands : null
+    if (!bands) return false
+    for (var i = 0; i < bands.length; i++) {
+      if (Number(bands[i]) > 0.02) return true
+    }
+    return false
+  }
+
+  // Held, so a rest in the music does not blink the strip out and back. Only
+  // a real stop lasts long enough to trip it.
+  property bool ambientSilent: true
+
+  onAmbientAudibleChanged: {
+    if (ambientAudible) {
+      silenceHold.stop()
+      ambientSilent = false
+    } else {
+      silenceHold.restart()
+    }
+  }
+
+  Timer {
+    id: silenceHold
+    interval: 1200
+    repeat: false
+    onTriggered: root.ambientSilent = true
+  }
+
   // The ambient spectrum behind the bar.
   //
   // WlrLayer.Bottom puts it above the wallpaper and below the bar, and the
@@ -559,7 +596,7 @@ BarWidget {
       color: root.bar ? root.bar.barForeground : "white"
       heightFraction: root.ambientHeight
       gaps: root.ambientGaps
-      opacity: root.hasTrack && root.playing ? root.ambientOpacity : 0
+      opacity: root.hasTrack && root.playing && !root.ambientSilent ? root.ambientOpacity : 0
       Behavior on opacity { NumberAnimation { duration: 420; easing.type: Easing.OutQuad } }
     }
   }
