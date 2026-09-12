@@ -43,7 +43,7 @@ BarWidget {
   readonly property real ambientOpacity: Math.max(0, Math.min(1,
     Number(root.setting("ambientOpacity", 0.55)) || 0.55))
   readonly property real ambientHeight: Math.max(0.1, Math.min(1,
-    Number(root.setting("ambientHeight", 0.62)) || 0.62))
+    Number(root.setting("ambientHeight", 0.40)) || 0.40))
 
   property bool popupOpen: false
   property string miniSearchText: ""

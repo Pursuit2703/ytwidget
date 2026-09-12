@@ -15,7 +15,7 @@ Item {
 
   property var levels: []
   property color color: Color.foreground
-  property real heightFraction: 0.62
+  property real heightFraction: 0.40
 
   // Screen-space [start, end] ranges the bar leaves empty, measured by
   // BarWidget from the bar's own scene graph. A bar outside every range is
