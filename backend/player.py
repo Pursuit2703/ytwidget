@@ -496,6 +496,13 @@ class QueuePlayer:
         self._eq_last_chain = ""
         self.spectrum = SpectrumTap()
         self._loaded_video_id = ""
+        # mpv reports idle-active while a loadfile is still settling, so a
+        # stall is only believed once a load has had time to take effect.
+        self._load_guard_until = 0.0
+        # Whether mpv currently has nothing loaded, straight from its
+        # idle-active property. play() consults this instead of trusting that
+        # a matching _loaded_video_id means the file is still up.
+        self._mpv_idle = True
         self._resume_position_ms = 0
         self.crossfade_ms = DEFAULT_CROSSFADE_MS
         # A fade only ever moves mpv's output volume. self.volume stays the
@@ -719,7 +726,11 @@ class QueuePlayer:
         if not self.current:
             raise PlayerError("Nothing is queued")
         video_id = str(self.current.get("videoId") or "")
-        if not self.mpv.running or self._loaded_video_id != video_id:
+        # _mpv_idle is the part that is easy to leave out: several paths stop
+        # playback without clearing _loaded_video_id — the end of the queue
+        # most of all — and then this fast path unpauses an mpv that has no
+        # file open, which looks exactly like the play button doing nothing.
+        if not self.mpv.running or self._loaded_video_id != video_id or self._mpv_idle:
             self._play_current(start=True)
             self._apply_resume_position()
             return
@@ -1034,6 +1045,8 @@ class QueuePlayer:
             self.position_ms = 0
             self.duration_ms = int(item.get("durationMs") or 0)
             self._loaded_video_id = video_id
+            self._load_guard_until = time.time() + 2.0
+            self._mpv_idle = False
             self._tail_fade_for = ""
             if start:
                 self._fade_in()
@@ -1088,6 +1101,7 @@ class QueuePlayer:
                 continue
             changed = False
             eof = False
+            idle = False
             for event in events:
                 name = event.get("event")
                 if name == "property-change":
@@ -1109,6 +1123,11 @@ class QueuePlayer:
                             self.volume = int(max(0, min(100, value)))
                     elif prop == "eof-reached" and value is True:
                         eof = True
+                    elif prop == "idle-active":
+                        # Acted on after the loop: an end-of-track idle must
+                        # not pre-empt the auto-advance below.
+                        idle = value is True
+                        self._mpv_idle = idle
                     elif prop == "media-title":
                         shown = str(value or "")
                         if self._display_title and (
@@ -1150,5 +1169,22 @@ class QueuePlayer:
                     self._restore_volume()
                     self.playing = False
                     changed = True
+            elif idle and self.playing and time.time() >= self._load_guard_until:
+                # mpv fell back to idle without an end-file this loop acts on
+                # — a "stop" reason, or a load that never produced a file.
+                # Nothing is loaded any more, so continuing to report
+                # `playing` leaves the UI showing a pause button, a timer
+                # frozen at 0:00 and a waveform dancing over silence.
+                #
+                # Clearing the loaded id matters just as much: play() skips
+                # straight to unpausing when the requested track is already
+                # loaded, so a stale id meant every press of play unpaused an
+                # idle mpv and did nothing at all. Forgetting it sends the
+                # next play() down the reload path instead.
+                self._restore_volume()
+                self._loaded_video_id = ""
+                self.playing = False
+                self.position_ms = 0
+                changed = True
             if changed:
                 self.on_change()

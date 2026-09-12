@@ -6,13 +6,15 @@ Item {
   id: root
 
   property var levels: []
-  property var labels: ["70", "180", "320", "600", "1k", "3k", "6k", "12k", "14k", "16k"]
+  // Labels are only drawn when they line up with the band count the backend
+  // actually sends; the bar visualiser's band layout is free to change.
+  property var labels: []
   property color foreground: Color.foreground
   property color accent: Color.accent
   property bool compact: false
   property bool showLabels: true
 
-  readonly property int bandCount: 10
+  readonly property int bandCount: Math.max(1, root.levels ? root.levels.length : 10)
   readonly property real labelHeight: root.showLabels
     ? (root.compact ? Style.space(12) : Style.space(14)) : 0
   readonly property real rowSpacing: root.compact ? Style.space(3) : Style.space(5)
@@ -106,7 +108,7 @@ Item {
         }
 
         Text {
-          visible: root.showLabels
+          visible: root.showLabels && index < root.labels.length
           anchors.bottom: parent.bottom
           anchors.horizontalCenter: parent.horizontalCenter
           width: parent.width

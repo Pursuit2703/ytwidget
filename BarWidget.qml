@@ -163,6 +163,16 @@ BarWidget {
     running: false
   }
 
+  // Tracks whether the pointer is anywhere over the pill, independent of the
+  // transport buttons' own MouseAreas on top of it. A plain MouseArea here
+  // would have its containsMouse flip false whenever the cursor sits over an
+  // overlapping child MouseArea (the buttons), flickering the controls/
+  // waveform crossfade as the pointer moves across them — HoverHandler
+  // doesn't have that "topmost claims hover" limitation.
+  HoverHandler {
+    id: pillHover
+  }
+
   Rectangle {
     anchors.left: parent.left
     anchors.right: parent.right
@@ -173,10 +183,13 @@ BarWidget {
     z: -1
     radius: height / 2
     color: Qt.rgba(0, 0, 0, 0)
-    // Always on, but faint — a touch brighter on hover as an affordance.
+    // No outline at rest — the waveform and title carry the chip on their own,
+    // and a permanent ring around them just boxes in an otherwise open bar.
+    // It fades in only while hovered, where it does real work: showing the
+    // hit area of the transport controls that have just swapped in.
     border.width: Style.normalBorderWidth
     border.color: Qt.rgba(root.bar.barForeground.r, root.bar.barForeground.g, root.bar.barForeground.b,
-      mouseArea.containsMouse ? 0.35 : 0.16)
+      pillHover.hovered ? 0.30 : 0.0)
     visible: !root.bar.vertical
 
     Behavior on border.color { ColorAnimation { duration: 120 } }
@@ -191,43 +204,77 @@ BarWidget {
     anchors.centerIn: parent
     spacing: Style.space(4)
 
-    WidgetButton {
-      id: prevButton
-      bar: root.bar
-      text: "\u{f04ae}"
-      fontSize: Style.font.bodySmall
-      foreground: root.bar.barForeground
-      fixedWidth: Style.space(20)
-      fixedHeight: root.barSize
-      tooltipText: "Previous"
-      onPressed: function(mouseButton) {
-        if (mouseButton === Qt.LeftButton && root.ytService) root.ytService.previous()
+    // Controls and waveform occupy the exact same slot, crossfading on pill
+    // hover — prev/pause/next on top while hovered, the live waveform
+    // underneath otherwise. The slot is sized to fit whichever is wider so
+    // the pill never resizes when it swaps.
+    Item {
+      id: mediaSlot
+      anchors.verticalCenter: parent.verticalCenter
+      width: Math.max(controlsRow.width, waveform.width)
+      height: root.barSize
+
+      Row {
+        id: controlsRow
+        anchors.centerIn: parent
+        spacing: Style.space(4)
+        enabled: pillHover.hovered
+        opacity: pillHover.hovered ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 120 } }
+
+        WidgetButton {
+          id: prevButton
+          bar: root.bar
+          text: "\u{f04ae}"
+          fontSize: Style.font.bodySmall
+          foreground: root.bar.barForeground
+          fixedWidth: Style.space(20)
+          fixedHeight: root.barSize
+          tooltipText: "Previous"
+          onPressed: function(mouseButton) {
+            if (mouseButton === Qt.LeftButton && root.ytService) root.ytService.previous()
+          }
+        }
+        WidgetButton {
+          id: playButton
+          bar: root.bar
+          text: root.hasTrack ? root.playIcon : "󰝚"
+          fontSize: Style.font.bodySmall
+          foreground: root.bar.barForeground
+          fixedWidth: Style.space(20)
+          fixedHeight: root.barSize
+          tooltipText: root.hasTrack ? (root.playing ? "Pause" : "Play") : "Nothing playing"
+          onPressed: function(mouseButton) {
+            if (mouseButton === Qt.LeftButton && root.ytService) root.ytService.togglePlayback()
+          }
+        }
+        WidgetButton {
+          id: nextButton
+          bar: root.bar
+          text: "\u{f04ad}"
+          fontSize: Style.font.bodySmall
+          foreground: root.bar.barForeground
+          fixedWidth: Style.space(20)
+          fixedHeight: root.barSize
+          tooltipText: "Next"
+          onPressed: function(mouseButton) {
+            if (mouseButton === Qt.LeftButton && root.ytService) root.ytService.next()
+          }
+        }
       }
-    }
-    WidgetButton {
-      id: playButton
-      bar: root.bar
-      text: root.hasTrack ? root.playIcon : "󰝚"
-      fontSize: Style.font.bodySmall
-      foreground: root.bar.barForeground
-      fixedWidth: Style.space(20)
-      fixedHeight: root.barSize
-      tooltipText: root.hasTrack ? (root.playing ? "Pause" : "Play") : "Nothing playing"
-      onPressed: function(mouseButton) {
-        if (mouseButton === Qt.LeftButton && root.ytService) root.ytService.togglePlayback()
-      }
-    }
-    WidgetButton {
-      id: nextButton
-      bar: root.bar
-      text: "\u{f04ad}"
-      fontSize: Style.font.bodySmall
-      foreground: root.bar.barForeground
-      fixedWidth: Style.space(20)
-      fixedHeight: root.barSize
-      tooltipText: "Next"
-      onPressed: function(mouseButton) {
-        if (mouseButton === Qt.LeftButton && root.ytService) root.ytService.next()
+
+      BarWave {
+        id: waveform
+        anchors.centerIn: parent
+        visible: root.hasTrack && !root.bar.vertical
+        opacity: pillHover.hovered ? 0 : 1
+        Behavior on opacity { NumberAnimation { duration: 120 } }
+        levels: root.ytService ? root.ytService.spectrumBands : []
+        color: root.bar.barForeground
+        // The pill insets 2 units top and bottom, so the tallest a bar can go
+        // on a 26 unit bar is about 20 — 0.66 leaves a little air at the peaks
+        // instead of letting them touch the border.
+        maxHeight: Math.max(Style.space(14), root.barSize * 0.66)
       }
     }
 
@@ -287,25 +334,6 @@ BarWidget {
         duration: Math.max(4000, (titleA.implicitWidth + marquee.gapPx) * 22)
         onRunningChanged: if (!running) ticker.x = 0
       }
-    }
-
-    // Live waveform, shown whenever a track is loaded (playing or paused) —
-    // a Row skips invisible children, so the chip shrinks back down on its
-    // own once there's no track at all. BarWave already keeps a thin centre
-    // line per bar at rest, so it reads fine at zero level instead of
-    // needing to be gated on `playing`.
-    Item {
-      width: Style.space(6)
-      height: 1
-      visible: waveform.visible
-    }
-    BarWave {
-      id: waveform
-      anchors.verticalCenter: parent.verticalCenter
-      visible: root.hasTrack && !root.bar.vertical
-      levels: root.ytService ? root.ytService.spectrumBands : []
-      color: root.bar.barForeground
-      maxHeight: Math.max(Style.space(10), root.barSize * 0.42)
     }
   }
 

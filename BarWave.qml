@@ -14,17 +14,24 @@ Item {
 
   property var levels: []
   property color color: Color.foreground
-  property int bars: 9
-  property real barWidth: Math.max(2, Style.space(2))
-  property real gap: Math.max(1, Style.space(2))
-  property real maxHeight: Style.space(14)
+  // One bar per band, 1:1. The backend emits 16 logarithmically spaced bands
+  // (see backend/spectrum.py), so every bar is a real measurement rather than
+  // an interpolation between two of them — which is what keeps the row
+  // reading as a spectrum instead of wobbling as one blob.
+  property int bars: 16
+  property real barWidth: Math.max(2, Style.space(3))
+  property real gap: Math.max(1, Style.spaceReal(1.2))
+  property real maxHeight: Style.space(18)
 
   implicitWidth: bars * barWidth + Math.max(0, bars - 1) * gap
   implicitHeight: maxHeight
 
-  // Map our bar count across however many bands the backend sends (10),
-  // weighting toward the low/mid bands where music actually lives so the
-  // chip looks alive instead of mostly flat.
+  // Bars and bands are the same count, so this is a straight lookup. It stays
+  // written as a span so a different band count still maps sensibly.
+  //
+  // Nothing here animates on a timer: a bar's height is its band's level and
+  // nothing else. The attack, the decay and the sensitivity all live in the
+  // backend's cava-style smoothing, which is driven by the audio itself.
   function levelAt(index) {
     var source = root.levels
     if (!source || source.length === 0) return 0
