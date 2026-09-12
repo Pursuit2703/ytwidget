@@ -229,19 +229,31 @@ BarWidget {
     Item {
       id: mediaSlot
       anchors.verticalCenter: parent.verticalCenter
-      width: Math.max(controlsRow.width, marquee.width)
+      // Not controlsRow.width — that fills this item now, which would be
+      // circular. The three transport buttons plus the toggle plus a gap.
+      readonly property real controlsWidth: Style.space(20) + Style.space(12)
+        + Style.space(20) * 3 + Style.space(4) * 2
+      width: Math.max(controlsWidth, marquee.width)
       height: root.barSize
 
-      Row {
+      // Toggle at one end, transport at the other.
+      //
+      // Centring the four as one cluster left about thirty units of empty
+      // pill on either side, because the slot is sized for the title and the
+      // buttons are much narrower than that. Pushing them to the edges uses
+      // the width the title already reserved and puts the display toggle
+      // visibly apart from the three that drive playback.
+      Item {
         id: controlsRow
-        anchors.centerIn: parent
-        spacing: Style.space(4)
+        anchors.fill: parent
         enabled: pillHover.hovered
         opacity: pillHover.hovered ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
 
         WidgetButton {
           id: ambientButton
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
           bar: root.bar
           // Plain note when the spectrum is on, the struck-through one when
           // it is off, dimmed to match. Two signals for the same state, which
@@ -261,6 +273,12 @@ BarWidget {
             if (mouseButton === Qt.LeftButton) root.ambientEnabled = !root.ambientEnabled
           }
         }
+        Row {
+          id: transport
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: Style.space(4)
+
         WidgetButton {
           id: prevButton
           bar: root.bar
@@ -299,6 +317,7 @@ BarWidget {
           onPressed: function(mouseButton) {
             if (mouseButton === Qt.LeftButton && root.ytService) root.ytService.next()
           }
+        }
         }
       }
 
