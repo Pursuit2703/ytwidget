@@ -22,31 +22,60 @@ shells out to `mpv` and `yt-dlp` directly.
 - `yt-dlp`
 - `python3` (no third-party pip packages — stdlib only)
 - `systemd --user`
+- `parec` (from `libpulse`) — records the plugin's own audio for the
+  visualiser. Without it playback works and the bars simply never move.
 
 ## Install
 
 ```sh
 git clone https://github.com/Pursuit2703/ytwidget.git ~/.config/omarchy/plugins/omar.ytwidget
-~/.config/omarchy/plugins/omar.ytwidget/scripts/setup.sh
+~/.config/omarchy/plugins/omar.ytwidget/scripts/install.sh
+omarchy-restart-shell
 ```
 
-`setup.sh` copies the backend into `~/.local/lib/ytwidget` (stable, not
-hot-reloaded), installs `~/.local/bin/ytwidget-server`, and installs the
-`ytwidget.service` systemd user unit. The unit has no `[Install]` section —
-it's never enabled at login, only started on demand when you first open the
-widget.
+`install.sh` checks the dependencies, installs the backend, and adds the
+widget to your bar if it is not there already. It never runs anything as
+root: if a step needs it, the commands are printed at the end in one block
+to read and paste.
 
-Add the widget to your bar in `~/.config/omarchy/shell.json`:
+Under the hood `setup.sh` (which `install.sh` calls) copies the backend into
+`~/.local/lib/ytwidget` — stable, deliberately *not* hot-reloaded — installs
+`~/.local/bin/ytwidget-server`, and installs the `ytwidget.service` systemd
+user unit. That unit has no `[Install]` section, so it is never enabled at
+login, only started on demand.
 
-```json
-{ "id": "omar.ytwidget" }
+**The backend is a copy.** Editing `backend/*.py` in a checkout changes
+nothing until you re-run `scripts/setup.sh` and
+`systemctl --user restart ytwidget.service`. The QML is the opposite: it is
+read from the plugin directory and reloads on save.
+
+## Restoring on a new machine
+
+Everything needed is in this repo. From a clean install:
+
+```sh
+git clone https://github.com/Pursuit2703/ytwidget.git ~/Work/ytwidget
+~/Work/ytwidget/scripts/install.sh --dev --restore-bar
+# paste the root commands it prints, then:
+omarchy-restart-shell
 ```
 
-or bind a toggle in Hyprland:
+- `--dev` bind-mounts the checkout onto
+  `~/.config/omarchy/plugins/omar.ytwidget` and adds an `/etc/fstab` entry so
+  it survives a reboot. This exists because omarchy-shell's `PluginRegistry`
+  watches the plugins directory with `inotifywait -m -r`, and that does not
+  follow a symlink into a subdirectory — a symlinked plugin silently never
+  hot-reloads. A bind mount is a real directory to inotify.
+- `--restore-bar` copies [`config/shell.json`](config/shell.json) over
+  `~/.config/omarchy/shell.json`, restoring the whole bar layout: which
+  widgets sit where, and this widget's settings. Your existing file is backed
+  up next to it first. Leave the flag off to keep your current bar and just
+  have the widget appended to it.
 
-```lua
-o.bind("SUPER + ALT + Y", "YT Widget", "omarchy-shell shell toggle omar.ytwidget {}")
-```
+`config/shell.json` is a snapshot of a working desktop, so it names other
+plugins too (island-bar, pomodoro, salah-time, notification-center,
+protonvpn). Those are not installed by this script — the bar simply skips any
+it cannot find.
 
 ## Customizing
 

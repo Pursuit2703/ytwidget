@@ -1,0 +1,85 @@
+{
+  "bar": {
+    "centerAnchor": "",
+    "layout": {
+      "center": [
+        {
+          "id": "omarchy.keyboard-layout"
+        },
+        {
+          "id": "omarchy.system-update"
+        },
+        {
+          "id": "omarchy.weather"
+        },
+        {
+          "format": "dddd HH:mm",
+          "formatAlt": "d MMMM 'W'ww yyyy",
+          "id": "omarchy.clock",
+          "verticalFormat": "HH\n—\nmm"
+        },
+        {
+          "id": "omar.separator"
+        },
+        {
+          "id": "pursuit2703.salah-time",
+          "beforeMinutes": "10"
+        }
+      ],
+      "left": [
+        {
+          "id": "omarchy.menu"
+        },
+        {
+          "id": "omarchy.workspaces"
+        },
+        {
+          "id": "omarchy-pomodoro"
+        },
+        {
+          "id": "omarchy.indicators"
+        }
+      ],
+      "right": [
+        {
+          "id": "omarchy.tray"
+        },
+        {
+          "id": "omar.ytwidget",
+          "ambientWave": "true"
+        },
+        {
+          "id": "omarchy.audio"
+        },
+        {
+          "id": "io.github.grichard99.omaproton-vpn"
+        },
+        {
+          "id": "omarchy.agents"
+        },
+        {
+          "id": "omarchy.network"
+        },
+        {
+          "id": "omarchy.power"
+        },
+        {
+          "id": "omacom.notification-center"
+        }
+      ]
+    },
+    "position": "top",
+    "transparent": true,
+    "id": "mscurtescu.island-bar"
+  },
+  "idle": {
+    "lock": 300,
+    "screensaver": 150
+  },
+  "plugins": [
+    {
+      "id": "omar.go-prompt"
+    }
+  ],
+  "version": 1
+}
