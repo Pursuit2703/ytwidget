@@ -220,7 +220,7 @@ BarWidget {
     Item {
       id: mediaSlot
       anchors.verticalCenter: parent.verticalCenter
-      width: Math.max(controlsRow.width, waveform.width)
+      width: Math.max(controlsRow.width, elapsed.implicitWidth)
       height: root.barSize
 
       Row {
@@ -272,18 +272,33 @@ BarWidget {
         }
       }
 
-      BarWave {
-        id: waveform
+      // Playback position, not a second waveform.
+      //
+      // The spectrum now runs across the empty parts of the bar, and having a
+      // small copy of it here as well showed the same thing twice. This slot
+      // cannot simply be emptied though: it is sized to whichever of the two
+      // is wider, and the transport controls need 68 units, so dropping the
+      // waveform would leave a hole before the title — and collapsing the slot
+      // instead would resize the pill on every hover and shove the icons to
+      // its right around. Time fills the space at a fixed width and is worth
+      // more at a glance than a duplicate of the spectrum.
+      Text {
+        id: elapsed
         anchors.centerIn: parent
-        visible: root.hasTrack && !root.bar.vertical
+        visible: root.hasTrack && !!root.bar && !root.bar.vertical
         opacity: pillHover.hovered ? 0 : 1
         Behavior on opacity { NumberAnimation { duration: 120 } }
-        levels: root.ytService ? root.ytService.spectrumBands : []
-        color: root.bar.barForeground
-        // The pill insets 2 units top and bottom, so the tallest a bar can go
-        // on a 26 unit bar is about 20 — 0.66 leaves a little air at the peaks
-        // instead of letting them touch the border.
-        maxHeight: Math.max(Style.space(14), root.barSize * 0.66)
+        textFormat: Text.PlainText
+        text: {
+          if (!root.ytService) return ""
+          var pos = Api.formatTime(root.ytService.positionMs)
+          var dur = root.ytService.durationMs > 0
+            ? Api.formatTime(root.ytService.durationMs) : ""
+          return dur ? pos + " / " + dur : pos
+        }
+        color: root.bar ? root.bar.barForeground : "white"
+        font.family: root.bar ? root.bar.fontFamily : Style.font.family
+        font.pixelSize: Style.font.caption
       }
     }
 
