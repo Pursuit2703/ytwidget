@@ -282,8 +282,10 @@ BarWidget {
         WidgetButton {
           id: playerButton
           bar: root.bar
-          // Chevron-up: this pulls the mini player out of the bar.
-          text: "\u{f0143}"
+          // Points the way the player actually goes: down out of a top bar
+          // when closed, back up when it is open. A chevron that always
+          // pointed up was aiming away from the panel it opens.
+          text: root.popupOpen ? "\u{f0143}" : "\u{f0140}"
           fontSize: Style.font.icon
           foreground: root.bar.barForeground
           fixedWidth: Style.space(26)
