@@ -30,12 +30,14 @@ BarWidget {
   readonly property string artist: ytService ? ytService.trackArtist : ""
   // Tighter than before so the chip stays compact now that the waveform
   // shares the row; still overridable per-widget via the maxWidth setting.
-  // Kept close to the width of the transport controls (94) on purpose. The
+  // Kept close to the width of the hover controls (128) on purpose. The
   // chip swaps the title for those controls, and any surplus shows up as a
   // hole in the bar for as long as you hover it — there is no border any more
-  // to contain it. The title is a marquee, so a narrow window still reads;
+  // to contain it. Too small is just as bad: the controls then cover the chip
+  // completely and there is nowhere left to click to open the player, which
+  // is why that has its own button rather than relying on bare chip. The title is a marquee, so a narrow window still reads;
   // it just scrolls sooner.
-  readonly property real maxLabelWidth: Style.space(Math.max(60, Number(root.setting("maxWidth", 100)) || 100))
+  readonly property real maxLabelWidth: Style.space(Math.max(60, Number(root.setting("maxWidth", 128)) || 128))
   readonly property string playIcon: playing ? "\u{f03e4}" : "\u{f040a}"
   // Plain ASCII, not a nerd-font codepoint: guaranteed to render in any font,
   // no tofu risk. Used both as the idle glyph and the art placeholder.
@@ -275,6 +277,20 @@ BarWidget {
           tooltipText: "Next"
           onPressed: function(mouseButton) {
             if (mouseButton === Qt.LeftButton && root.ytService) root.ytService.next()
+          }
+        }
+        WidgetButton {
+          id: playerButton
+          bar: root.bar
+          // Chevron-up: this pulls the mini player out of the bar.
+          text: "\u{f0143}"
+          fontSize: Style.font.icon
+          foreground: root.bar.barForeground
+          fixedWidth: Style.space(26)
+          fixedHeight: root.barSize
+          tooltipText: root.popupOpen ? "Close the player" : "Open the player"
+          onPressed: function(mouseButton) {
+            if (mouseButton === Qt.LeftButton) root.popupOpen = !root.popupOpen
           }
         }
       }

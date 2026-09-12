@@ -31,7 +31,7 @@
     "defaultSection": "right",
     "defaults": {
       "idleShutdownMinutes": 15,
-      "maxWidth": 100,
+      "maxWidth": 128,
       "crossfadeMs": 500,
       "subtitleLang": "en",
       "videoQuality": 1080,
@@ -59,8 +59,8 @@
         "min": 60,
         "max": 480,
         "step": 10,
-        "defaultValue": 100,
-        "description": "How much room the title gets. The transport controls need about 94, so anything much above that leaves a gap in the bar while you hover the chip. The title scrolls, so a narrow window still reads."
+        "defaultValue": 128,
+        "description": "How much room the title gets. The hover controls need about 128, so much above that leaves a gap in the bar while you hover the chip. The title scrolls, so a narrow window still reads."
       },
       {
         "key": "crossfadeMs",
