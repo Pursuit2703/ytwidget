@@ -31,7 +31,7 @@
     "defaultSection": "right",
     "defaults": {
       "idleShutdownMinutes": 15,
-      "maxWidth": 150,
+      "maxWidth": 100,
       "crossfadeMs": 500,
       "subtitleLang": "en",
       "videoQuality": 1080,
@@ -56,10 +56,11 @@
         "key": "maxWidth",
         "type": "integer",
         "label": "Bar title width",
-        "min": 90,
+        "min": 60,
         "max": 480,
         "step": 10,
-        "defaultValue": 150
+        "defaultValue": 100,
+        "description": "How much room the title gets. The transport controls need about 94, so anything much above that leaves a gap in the bar while you hover the chip. The title scrolls, so a narrow window still reads."
       },
       {
         "key": "crossfadeMs",

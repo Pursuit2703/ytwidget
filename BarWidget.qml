@@ -30,7 +30,12 @@ BarWidget {
   readonly property string artist: ytService ? ytService.trackArtist : ""
   // Tighter than before so the chip stays compact now that the waveform
   // shares the row; still overridable per-widget via the maxWidth setting.
-  readonly property real maxLabelWidth: Style.space(Math.max(90, Number(root.setting("maxWidth", 150)) || 150))
+  // Kept close to the width of the transport controls (94) on purpose. The
+  // chip swaps the title for those controls, and any surplus shows up as a
+  // hole in the bar for as long as you hover it — there is no border any more
+  // to contain it. The title is a marquee, so a narrow window still reads;
+  // it just scrolls sooner.
+  readonly property real maxLabelWidth: Style.space(Math.max(60, Number(root.setting("maxWidth", 100)) || 100))
   readonly property string playIcon: playing ? "\u{f03e4}" : "\u{f040a}"
   // Plain ASCII, not a nerd-font codepoint: guaranteed to render in any font,
   // no tofu risk. Used both as the idle glyph and the art placeholder.
@@ -220,10 +225,15 @@ BarWidget {
       width: Math.max(controlsRow.width, marquee.width)
       height: root.barSize
 
+      // Left-aligned, not centred: the title starts at this edge too, so the
+      // swap happens in place rather than collapsing into the middle. What is
+      // left over sits on the right, which is where it already sits whenever
+      // a track has a short title.
       Row {
         id: controlsRow
-        anchors.centerIn: parent
-        spacing: Style.space(4)
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(8)
         enabled: pillHover.hovered
         opacity: pillHover.hovered ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
@@ -232,9 +242,9 @@ BarWidget {
           id: prevButton
           bar: root.bar
           text: "\u{f04ae}"
-          fontSize: Style.font.bodySmall
+          fontSize: Style.font.icon
           foreground: root.bar.barForeground
-          fixedWidth: Style.space(20)
+          fixedWidth: Style.space(26)
           fixedHeight: root.barSize
           tooltipText: "Previous"
           onPressed: function(mouseButton) {
@@ -245,9 +255,9 @@ BarWidget {
           id: playButton
           bar: root.bar
           text: root.hasTrack ? root.playIcon : "󰝚"
-          fontSize: Style.font.bodySmall
+          fontSize: Style.font.icon
           foreground: root.bar.barForeground
-          fixedWidth: Style.space(20)
+          fixedWidth: Style.space(26)
           fixedHeight: root.barSize
           tooltipText: root.hasTrack ? (root.playing ? "Pause" : "Play") : "Nothing playing"
           onPressed: function(mouseButton) {
@@ -258,9 +268,9 @@ BarWidget {
           id: nextButton
           bar: root.bar
           text: "\u{f04ad}"
-          fontSize: Style.font.bodySmall
+          fontSize: Style.font.icon
           foreground: root.bar.barForeground
-          fixedWidth: Style.space(20)
+          fixedWidth: Style.space(26)
           fixedHeight: root.barSize
           tooltipText: "Next"
           onPressed: function(mouseButton) {
