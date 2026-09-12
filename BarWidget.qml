@@ -236,24 +236,27 @@ BarWidget {
       width: Math.max(controlsWidth, marquee.width)
       height: root.barSize
 
-      // Toggle at one end, transport at the other.
+      // Spread evenly across the slot.
       //
-      // Centring the four as one cluster left about thirty units of empty
-      // pill on either side, because the slot is sized for the title and the
-      // buttons are much narrower than that. Pushing them to the edges uses
-      // the width the title already reserved and puts the display toggle
-      // visibly apart from the three that drive playback.
-      Item {
+      // The slot is sized for the title, so it is always wider than four
+      // small glyphs need — roughly 150 against 104. Centring them left the
+      // group adrift in the middle with dead pill either side; pinning the
+      // toggle and the transport to opposite edges emptied out the middle
+      // instead and read as two disconnected fragments. Even spacing spends
+      // the surplus on the gaps, which looks deliberate rather than left
+      // over. The spacing comes off the slot, not off this row, or it would
+      // be circular.
+      Row {
         id: controlsRow
-        anchors.fill: parent
+        anchors.centerIn: parent
+        spacing: Math.max(Style.space(4),
+          (mediaSlot.width - Style.space(20) * 4) / 3)
         enabled: pillHover.hovered
         opacity: pillHover.hovered ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
 
         WidgetButton {
           id: ambientButton
-          anchors.left: parent.left
-          anchors.verticalCenter: parent.verticalCenter
           bar: root.bar
           // Plain note when the spectrum is on, the struck-through one when
           // it is off, dimmed to match. Two signals for the same state, which
@@ -273,12 +276,6 @@ BarWidget {
             if (mouseButton === Qt.LeftButton) root.ambientEnabled = !root.ambientEnabled
           }
         }
-        Row {
-          id: transport
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(4)
-
         WidgetButton {
           id: prevButton
           bar: root.bar
@@ -317,7 +314,6 @@ BarWidget {
           onPressed: function(mouseButton) {
             if (mouseButton === Qt.LeftButton && root.ytService) root.ytService.next()
           }
-        }
         }
       }
 
