@@ -36,6 +36,15 @@ BarWidget {
   // no tofu risk. Used both as the idle glyph and the art placeholder.
   readonly property string idleGlyph: "YT"
 
+  // Ambient full-bar spectrum. Off by default: it paints across the whole
+  // screen width, which is a bigger change to someone's desktop than a bar
+  // widget has any business making uninvited.
+  readonly property bool ambientEnabled: String(root.setting("ambientWave", "false")) === "true"
+  readonly property real ambientOpacity: Math.max(0, Math.min(1,
+    Number(root.setting("ambientOpacity", 0.55)) || 0.55))
+  readonly property real ambientHeight: Math.max(0.1, Math.min(1,
+    Number(root.setting("ambientHeight", 0.62)) || 0.62))
+
   property bool popupOpen: false
   property string miniSearchText: ""
   property var miniSearchResults: []
@@ -361,6 +370,183 @@ BarWidget {
     onEntered: if (root.bar) root.bar.showTooltip(root,
       root.hasTrack ? (root.title + (root.artist ? " — " + root.artist : "")) : "Nothing playing")
     onExited: if (root.bar) root.bar.hideTooltip(root)
+  }
+
+  // Where the bar is actually empty.
+  //
+  // The strip behind the bar has no way to ask for this: island-bar's IPC
+  // exposes only syncHidden(), and the PluginBarApi facade handed to widgets
+  // carries scalars alone — barSize, colours, position — with no island
+  // geometry on it. But that same facade notes it "cannot isolate a visual
+  // child from the parent hierarchy of the QML scene that renders it", and
+  // that is the way in: this widget really is an item inside the bar's own
+  // tree, so it can walk up to the bar's root and measure what is drawn.
+  //
+  // Occupancy is taken from the leaves — the items with no visible children,
+  // i.e. the text and icons that actually paint — rather than from the three
+  // island hosts. Leaves are what "empty" is really about, and reading them
+  // needs no knowledge of how island-bar names or nests its containers, so a
+  // layout change degrades to a wrong-ish gap rather than a broken binding.
+  property var ambientGaps: []
+
+  readonly property real ambientGapPad: Style.space(10)
+  readonly property real ambientMinGap: Style.space(40)
+
+  function barRootItem() {
+    var node = root
+    var guard = 0
+    while (node && node.parent && guard < 64) {
+      node = node.parent
+      guard++
+    }
+    return node
+  }
+
+  // Only things that actually put ink on the bar count as occupied. The first
+  // attempt at this treated any childless item as occupied, which handed the
+  // whole width over to a bar-wide MouseArea and left no gaps at all.
+  function paintsInk(item) {
+    if (item.opacity !== undefined && item.opacity <= 0.02) return false
+    if (item.text !== undefined && String(item.text).length > 0) return true
+    if (item.source !== undefined && String(item.source).length > 0) return true
+    var c = item.color
+    if (c !== undefined && c !== null && c.a !== undefined && c.a > 0.05) return true
+    var b = item.border
+    if (b !== undefined && b !== null && b.width > 0
+        && b.color !== undefined && b.color !== null && b.color.a > 0.05) return true
+    return false
+  }
+
+  // Spans are clamped to whatever clips them on the way down.
+  //
+  // Without this the scrolling title wrecks the result: the marquee's Text is
+  // far wider than the window it shows through and slides continuously, so its
+  // measured span crawls leftwards and drags the gap edge with it, popping
+  // bars off one at a time. Intersecting with each clipping ancestor gives the
+  // span you can actually see, which for a marquee is a fixed window.
+  function collectOccupied(item, out, depth, clipLo, clipHi) {
+    if (!item || depth > 24) return
+    if (!item.visible || !(item.width > 0) || !(item.height > 0)) return
+    if (clipHi <= clipLo) return
+
+    var at = item.mapToItem(null, 0, 0)
+    if (!at) return
+    var lo = at.x
+    var hi = at.x + item.width
+
+    if (root.paintsInk(item)) {
+      var vlo = Math.max(lo, clipLo)
+      var vhi = Math.min(hi, clipHi)
+      if (vhi > vlo) out.push([vlo, vhi])
+    }
+
+    var nextLo = clipLo
+    var nextHi = clipHi
+    if (item.clip) {
+      nextLo = Math.max(clipLo, lo)
+      nextHi = Math.min(clipHi, hi)
+    }
+
+    var kids = item.children || []
+    for (var i = 0; i < kids.length; i++)
+      root.collectOccupied(kids[i], out, depth + 1, nextLo, nextHi)
+  }
+
+  function recomputeAmbientGaps() {
+    if (!ambientEnabled) return
+    var barItem = barRootItem()
+    if (!barItem || !(barItem.width > 0)) { ambientGaps = []; return }
+
+    var spans = []
+    collectOccupied(barItem, spans, 0, 0, barItem.width)
+    if (spans.length === 0) { ambientGaps = [[0, barItem.width]]; return }
+
+    spans.sort(function(a, b) { return a[0] - b[0] })
+
+    // Merge, padded, so two glyphs a few pixels apart do not leave a sliver
+    // of spectrum stranded between them.
+    var merged = []
+    var curLo = spans[0][0] - ambientGapPad
+    var curHi = spans[0][1] + ambientGapPad
+    for (var i = 1; i < spans.length; i++) {
+      var lo = spans[i][0] - ambientGapPad
+      var hi = spans[i][1] + ambientGapPad
+      if (lo <= curHi) {
+        if (hi > curHi) curHi = hi
+      } else {
+        merged.push([curLo, curHi])
+        curLo = lo
+        curHi = hi
+      }
+    }
+    merged.push([curLo, curHi])
+
+    // The complement is what is left over.
+    var gaps = []
+    var cursor = 0
+    for (var m = 0; m < merged.length; m++) {
+      var start = Math.max(0, merged[m][0])
+      if (start - cursor >= ambientMinGap) gaps.push([cursor, start])
+      cursor = Math.max(cursor, merged[m][1])
+    }
+    if (barItem.width - cursor >= ambientMinGap) gaps.push([cursor, barItem.width])
+
+    // Ignore sub-pixel reflow (a clock digit changing width, say) so bars are
+    // not switched on and off for a change nobody can see.
+    var prev = root.ambientGaps
+    if (prev && prev.length === gaps.length) {
+      var same = true
+      for (var q = 0; q < gaps.length; q++) {
+        if (Math.abs(prev[q][0] - gaps[q][0]) > 2 || Math.abs(prev[q][1] - gaps[q][1]) > 2) {
+          same = false
+          break
+        }
+      }
+      if (same) return
+    }
+    ambientGaps = gaps
+  }
+
+  // The bar's contents resize constantly — a scrolling title, a ticking
+  // clock — so this is re-measured on a timer rather than hooked to any one
+  // widget's geometry. Cheap: a few hundred item reads, four times a second.
+  Timer {
+    interval: 250
+    repeat: true
+    running: root.ambientEnabled
+    triggeredOnStart: true
+    onTriggered: root.recomputeAmbientGaps()
+  }
+
+  // The ambient spectrum behind the bar.
+  //
+  // WlrLayer.Bottom puts it above the wallpaper and below the bar, and the
+  // bar's exclusive zone means no ordinary window is ever in that strip, so
+  // it cannot be covered. exclusionMode Ignore is essential: reserving space
+  // of its own would push every window down by a second bar's height.
+  //
+  // It fades out whenever nothing is playing, so an idle machine looks
+  // exactly as it did before this existed.
+  PanelWindow {
+    id: ambient
+    visible: root.ambientEnabled && !!root.bar && !root.bar.vertical
+    anchors { top: true; left: true; right: true }
+    implicitHeight: root.barSize
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.namespace: "omar-ytwidget-ambient"
+    WlrLayershell.layer: WlrLayer.Bottom
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+    AmbientWave {
+      anchors.fill: parent
+      levels: root.ytService ? root.ytService.spectrumBands : []
+      color: root.bar ? root.bar.barForeground : "white"
+      heightFraction: root.ambientHeight
+      gaps: root.ambientGaps
+      opacity: root.hasTrack && root.playing ? root.ambientOpacity : 0
+      Behavior on opacity { NumberAnimation { duration: 420; easing.type: Easing.OutQuad } }
+    }
   }
 
   // PopupCard (a HyprlandFocusGrab-based popup) never reliably delivered

@@ -36,7 +36,10 @@
       "subtitleLang": "en",
       "videoQuality": 1080,
       "videoWindowPercent": 70,
-      "videoGpu": "integrated"
+      "videoGpu": "integrated",
+      "ambientWave": false,
+      "ambientOpacity": 0.55,
+      "ambientHeight": 0.62
     },
     "schema": [
       {
