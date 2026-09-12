@@ -186,27 +186,15 @@ BarWidget {
     id: pillHover
   }
 
-  Rectangle {
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.top: parent.top
-    anchors.bottom: parent.bottom
-    anchors.topMargin: 2
-    anchors.bottomMargin: 2
-    z: -1
-    radius: height / 2
-    color: Qt.rgba(0, 0, 0, 0)
-    // No outline at rest — the waveform and title carry the chip on their own,
-    // and a permanent ring around them just boxes in an otherwise open bar.
-    // It fades in only while hovered, where it does real work: showing the
-    // hit area of the transport controls that have just swapped in.
-    border.width: Style.normalBorderWidth
-    border.color: Qt.rgba(root.bar.barForeground.r, root.bar.barForeground.g, root.bar.barForeground.b,
-      pillHover.hovered ? 0.30 : 0.0)
-    visible: !root.bar.vertical
-
-    Behavior on border.color { ColorAnimation { duration: 120 } }
-  }
+  // No pill outline at all.
+  //
+  // It used to be on always, then on only while hovered as an affordance for
+  // the transport buttons. But drawing a box is what made the width mismatch
+  // visible: the slot is sized for the title, the three buttons need about
+  // half that, and an outline around the difference turns ordinary bar
+  // spacing into a conspicuously half-empty container. With no border the
+  // buttons simply sit in the bar like every other icon and there is nothing
+  // to look under-filled.
 
   Row {
     id: row
@@ -229,53 +217,17 @@ BarWidget {
     Item {
       id: mediaSlot
       anchors.verticalCenter: parent.verticalCenter
-      // Not controlsRow.width — that fills this item now, which would be
-      // circular. The three transport buttons plus the toggle plus a gap.
-      readonly property real controlsWidth: Style.space(20) + Style.space(12)
-        + Style.space(20) * 3 + Style.space(4) * 2
-      width: Math.max(controlsWidth, marquee.width)
+      width: Math.max(controlsRow.width, marquee.width)
       height: root.barSize
 
-      // Spread evenly across the slot.
-      //
-      // The slot is sized for the title, so it is always wider than four
-      // small glyphs need — roughly 150 against 104. Centring them left the
-      // group adrift in the middle with dead pill either side; pinning the
-      // toggle and the transport to opposite edges emptied out the middle
-      // instead and read as two disconnected fragments. Even spacing spends
-      // the surplus on the gaps, which looks deliberate rather than left
-      // over. The spacing comes off the slot, not off this row, or it would
-      // be circular.
       Row {
         id: controlsRow
         anchors.centerIn: parent
-        spacing: Math.max(Style.space(4),
-          (mediaSlot.width - Style.space(20) * 4) / 3)
+        spacing: Style.space(4)
         enabled: pillHover.hovered
         opacity: pillHover.hovered ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
 
-        WidgetButton {
-          id: ambientButton
-          bar: root.bar
-          // Plain note when the spectrum is on, the struck-through one when
-          // it is off, dimmed to match. Two signals for the same state, which
-          // is worth it on a glyph this small.
-          text: root.ambientEnabled ? "\u{f075a}" : "\u{f0759}"
-          fontSize: Style.font.bodySmall
-          foreground: root.ambientEnabled
-            ? root.bar.barForeground
-            : Qt.rgba(root.bar.barForeground.r, root.bar.barForeground.g,
-                      root.bar.barForeground.b, 0.40)
-          fixedWidth: Style.space(20)
-          fixedHeight: root.barSize
-          tooltipText: root.ambientEnabled
-            ? "Hide the spectrum across the bar"
-            : "Show the spectrum across the bar"
-          onPressed: function(mouseButton) {
-            if (mouseButton === Qt.LeftButton) root.ambientEnabled = !root.ambientEnabled
-          }
-        }
         WidgetButton {
           id: prevButton
           bar: root.bar
@@ -375,6 +327,44 @@ BarWidget {
           to: -(titleA.implicitWidth + marquee.gapPx)
           duration: Math.max(4000, (titleA.implicitWidth + marquee.gapPx) * 22)
           onRunningChanged: if (!running) ticker.x = 0
+        }
+      }
+
+      // How far through the track we are, as a line under the title — the
+      // same idea as the bar under a YouTube thumbnail. It stays put while
+      // the controls swap in on hover: it is status, not a control, and
+      // nothing about it changes when the pointer arrives.
+      Rectangle {
+        id: progressTrack
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Style.space(4)
+        height: Math.max(1, Style.space(1))
+        radius: height / 2
+        visible: root.hasTrack && !!root.bar && !root.bar.vertical
+                 && root.ytService && root.ytService.durationMs > 0
+        color: Qt.rgba(root.bar.barForeground.r, root.bar.barForeground.g,
+                       root.bar.barForeground.b, 0.18)
+
+        Rectangle {
+          anchors.left: parent.left
+          anchors.top: parent.top
+          anchors.bottom: parent.bottom
+          radius: parent.radius
+          color: root.bar.barForeground
+          width: {
+            if (!root.ytService || root.ytService.durationMs <= 0) return 0
+            var f = root.ytService.positionMs / root.ytService.durationMs
+            return parent.width * Math.max(0, Math.min(1, f))
+          }
+
+          // Position arrives in steps as mpv reports it; interpolating
+          // between them turns a twitching line into a moving one. Short
+          // enough not to lag a seek.
+          Behavior on width {
+            NumberAnimation { duration: 250; easing.type: Easing.OutQuad }
+          }
         }
       }
     }
@@ -866,6 +856,18 @@ BarWidget {
           foreground: root.bar.foreground
           tooltipText: root.miniQueueOpen ? "Hide queue" : "Show queue"
           onClicked: root.miniQueueOpen = !root.miniQueueOpen
+        }
+        // U+F1970 is the waveform glyph — deliberately not the music note,
+        // which the queue toggle beside it already uses, nor the tune sliders
+        // the equaliser uses.
+        Chicklet {
+          iconText: "\u{f1970}"
+          selected: root.ambientEnabled
+          foreground: root.bar.foreground
+          tooltipText: root.ambientEnabled
+            ? "Hide the spectrum across the bar"
+            : "Show the spectrum across the bar"
+          onClicked: root.ambientEnabled = !root.ambientEnabled
         }
         Chicklet {
           iconText: "󰓃"
