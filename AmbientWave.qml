@@ -48,6 +48,9 @@ Item {
   // which lands almost every bar on the 1px floor if taken literally.
   property real curve: 0.6
 
+  // How present the trailing layer is relative to the live one.
+  property real ghostOpacity: 0.32
+
   function bandAt(i) {
     var source = root.levels
     if (!source || i < 0 || i >= source.length) return 0
@@ -64,6 +67,36 @@ Item {
   //
   // Alternate tiles run backwards, so the pattern turns around at each repeat
   // instead of snapping back to the low end and leaving a visible seam.
+  // A slower second layer behind the live one.
+  //
+  // Peaks are held per band, not per bar: the bars tile the bands, so sixteen
+  // numbers cover all hundred and sixty of them. A peak jumps straight to a
+  // new high and then sinks, so a hit leaves a ghost that the live bar drops
+  // out of — which is what gives the row some depth instead of every bar
+  // moving as one flat plane.
+  property var peaks: []
+  readonly property real peakFall: 0.012
+
+  onLevelsChanged: {
+    var src = root.levels || []
+    var prev = root.peaks || []
+    var next = []
+    for (var i = 0; i < src.length; i++) {
+      var v = root.bandAt(i)
+      var was = i < prev.length ? Number(prev[i]) : 0
+      if (!isFinite(was)) was = 0
+      next.push(Math.max(v, was - root.peakFall))
+    }
+    root.peaks = next
+  }
+
+  function peakAt(i) {
+    var p = root.peaks
+    if (!p || i < 0 || i >= p.length) return 0
+    var v = Number(p[i])
+    return isFinite(v) ? Math.max(0, Math.min(1, v)) : 0
+  }
+
   function bandFor(index) {
     var n = root.levels ? root.levels.length : 0
     if (n <= 1) return 0
@@ -78,27 +111,54 @@ Item {
     Repeater {
       model: root.bars
 
-      Rectangle {
+      Item {
         required property int index
+        readonly property int band: root.bandFor(index)
         readonly property real centre: index * root.pitch + root.barWidth / 2
+        readonly property real level: root.bandAt(band)
+
         // Hidden, not resized: the Repeater keeps the same delegates either
         // way, which is what keeps it away from the regenerate path that
         // crashed the shell.
         visible: root.inGap(centre)
         x: index * root.pitch
-        // Centred on the bar's midline, growing both ways, the same as the
-        // chip's own bars. Anchoring to the bottom edge instead left the
-        // spectrum sitting below everything else in the bar, which is
-        // vertically centred, and it read as a separate strip underneath
-        // rather than as part of the row.
-        y: (parent.height - height) / 2
         width: root.barWidth
-        height: Math.max(1, root.maxBarHeight * root.bandAt(root.bandFor(index)))
-        radius: width / 2
-        color: root.color
+        height: parent.height
 
-        Behavior on height {
-          NumberAnimation { duration: 70; easing.type: Easing.OutQuad }
+        // The trailing peak, behind and faint.
+        Rectangle {
+          anchors.horizontalCenter: parent.horizontalCenter
+          // Centred on the bar's midline, growing both ways, the same as the
+          // chip's own bars. Anchoring to the bottom edge left the spectrum
+          // sitting below everything else in the bar, which is vertically
+          // centred, and it read as a separate strip underneath.
+          y: (parent.height - height) / 2
+          width: parent.width
+          height: Math.max(1, root.maxBarHeight * root.peakAt(parent.band))
+          radius: width / 2
+          color: root.color
+          opacity: root.ghostOpacity
+
+          Behavior on height {
+            NumberAnimation { duration: 110; easing.type: Easing.OutQuad }
+          }
+        }
+
+        // The live level, in front.
+        Rectangle {
+          anchors.horizontalCenter: parent.horizontalCenter
+          y: (parent.height - height) / 2
+          width: parent.width
+          height: Math.max(1, root.maxBarHeight * parent.level)
+          radius: width / 2
+          color: root.color
+          // A little brighter on a hit. Small on purpose: enough to feel the
+          // beat, not enough to read as flashing.
+          opacity: 0.78 + 0.22 * parent.level
+
+          Behavior on height {
+            NumberAnimation { duration: 70; easing.type: Easing.OutQuad }
+          }
         }
       }
     }
