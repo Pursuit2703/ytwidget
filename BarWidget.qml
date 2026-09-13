@@ -627,6 +627,12 @@ BarWidget {
     WlrLayershell.layer: WlrLayer.Bottom
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
+    // Visual-only, same as Omarchy's own bar-drag-ghost window (Bar.qml):
+    // an empty input region so this can never steal a click or an
+    // in-progress drag (e.g. dragging a widget into an empty bar section)
+    // meant for whatever is above or below it.
+    mask: Region {}
+
     AmbientWave {
       anchors.fill: parent
       levels: root.ytService ? root.ytService.spectrumBands : []
