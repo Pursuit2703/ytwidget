@@ -556,6 +556,10 @@ class Backend:
             source = message.get("items")
             items = source if isinstance(source, list) else list(self.player.queue)
             return playlists.create_playlist(str(message.get("name") or ""), items)
+        if command == "import_playlist":
+            imported = urls_mod.import_playlist(str(message.get("url") or ""))
+            name = str(message.get("name") or "").strip() or imported.get("title") or "Imported playlist"
+            return playlists.create_playlist(name, imported.get("items"))
         if command == "delete_playlist":
             playlists.delete_playlist(str(message.get("playlist_id") or ""))
             return {}

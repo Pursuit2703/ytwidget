@@ -46,6 +46,9 @@ Item {
   property var activePlaylistItems: []
   property string activePlaylistName: ""
   property string newPlaylistName: ""
+  property string importPlaylistUrl: ""
+  property bool importingPlaylist: false
+  property string importPlaylistError: ""
   property bool eqExpanded: false
 
   function open(payloadJson) {
@@ -107,6 +110,19 @@ Item {
       if (q[i] && q[i].videoId === videoId) return i
     }
     return -1
+  }
+
+  function importPlaylistFromLink() {
+    var url = root.importPlaylistUrl.trim()
+    if (!url || !service) return
+    importingPlaylist = true
+    importPlaylistError = ""
+    service.importPlaylist(url, "", function(ok, result, message) {
+      importingPlaylist = false
+      if (!ok) { importPlaylistError = message || "Could not import that playlist"; return }
+      root.importPlaylistUrl = ""
+      service.listPlaylists(function() {})
+    })
   }
 
   function openPlaylist(playlistId) {
@@ -224,6 +240,7 @@ Item {
             delegate: TrackRow {
               width: ListView.view.width
               item: modelData
+              service: root.service
               queueGlyph: root.queueIndexFor(modelData.videoId) >= 0 ? root.iconClose : root.iconQueueAdd
               onPlayRequested: if (root.service) root.service.playNow(modelData)
               onQueueRequested: {
@@ -254,6 +271,7 @@ Item {
             delegate: TrackRow {
               width: ListView.view.width
               item: modelData
+              service: root.service
               highlighted: index === (root.service ? root.service.queueIndex : -1)
               queueGlyph: root.iconClose
               onPlayRequested: if (root.service) root.service.playQueueFrom(root.service.queue, index)
@@ -288,6 +306,34 @@ Item {
                   })
                 }
               }
+            }
+
+            RowLayout {
+              Layout.fillWidth: true
+              visible: root.activePlaylistId === ""
+              spacing: Style.space(8)
+              TextField {
+                Layout.fillWidth: true
+                placeholderText: "Paste a YouTube playlist link…"
+                text: root.importPlaylistUrl
+                onTextChanged: root.importPlaylistUrl = text
+                onAccepted: root.importPlaylistFromLink()
+              }
+              Button {
+                text: root.importingPlaylist ? "Importing…" : "Import"
+                iconText: root.iconPlaylistAdd
+                enabled: root.importPlaylistUrl.trim() !== "" && !root.importingPlaylist
+                onClicked: root.importPlaylistFromLink()
+              }
+            }
+
+            Label {
+              Layout.fillWidth: true
+              visible: root.activePlaylistId === "" && root.importPlaylistError !== ""
+              text: root.importPlaylistError
+              color: Color.urgent
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
             }
 
             RowLayout {
@@ -360,6 +406,7 @@ Item {
               delegate: TrackRow {
                 width: ListView.view.width
                 item: modelData
+                service: root.service
                 queueGlyph: root.iconClose
                 onPlayRequested: if (root.service) root.service.playQueueFrom(root.activePlaylistItems, index)
                 onQueueRequested: if (root.service) root.service.removeFromPlaylist(root.activePlaylistId, modelData.videoId)
@@ -386,6 +433,7 @@ Item {
             delegate: TrackRow {
               width: ListView.view.width
               item: modelData
+              service: root.service
               queueGlyph: root.queueIndexFor(modelData.videoId) >= 0 ? root.iconClose : root.iconQueueAdd
               onPlayRequested: if (root.service) root.service.playNow(modelData)
               onQueueRequested: {

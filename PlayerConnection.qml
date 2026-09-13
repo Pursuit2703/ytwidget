@@ -143,7 +143,12 @@ Item {
   function getPlaylist(playlistId, callback) { send("get_playlist", { playlist_id: playlistId }, callback) }
   function createPlaylist(name, items, callback) { send("create_playlist", { name: name, items: items }, callback) }
   function deletePlaylist(playlistId) { send("delete_playlist", { playlist_id: playlistId }) }
-  function addToPlaylist(playlistId, item) { send("add_to_playlist", { playlist_id: playlistId, item: item }) }
+  function addToPlaylist(playlistId, item, callback) { send("add_to_playlist", { playlist_id: playlistId, item: item }, callback) }
+  // Reuses the same yt-dlp playlist expansion as a pasted link into search —
+  // this just saves the result as a local playlist instead of loading the
+  // queue. name is optional: the backend falls back to the playlist's own
+  // title.
+  function importPlaylist(url, name, callback) { send("import_playlist", { url: url, name: name || "" }, callback) }
   function removeFromPlaylist(playlistId, videoId) {
     send("remove_from_playlist", { playlist_id: playlistId, video_id: videoId })
   }

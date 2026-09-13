@@ -138,12 +138,12 @@ def _parse_json_lines(raw: str) -> list[dict[str, Any]]:
     return items
 
 
-def expand_playlist(playlist_id: str, limit: int = MAX_PLAYLIST_ITEMS) -> list[dict[str, Any]]:
+def _fetch_playlist_raw(playlist_id: str, limit: int) -> str:
     limit = max(1, min(int(limit or MAX_PLAYLIST_ITEMS), MAX_PLAYLIST_ITEMS))
     # --flat-playlist keeps this to a single index fetch instead of one full
     # extraction per entry; the per-video stream URL is resolved lazily at play
     # time by StreamResolver, exactly as search results are.
-    raw = _run_ytdlp([
+    return _run_ytdlp([
         "--flat-playlist",
         "--dump-json",
         "--no-warnings",
@@ -151,7 +151,42 @@ def expand_playlist(playlist_id: str, limit: int = MAX_PLAYLIST_ITEMS) -> list[d
         "--playlist-items", f"1-{limit}",
         f"https://www.youtube.com/playlist?list={playlist_id}",
     ], timeout=60)
-    return _parse_json_lines(raw)
+
+
+def expand_playlist(playlist_id: str, limit: int = MAX_PLAYLIST_ITEMS) -> list[dict[str, Any]]:
+    return _parse_json_lines(_fetch_playlist_raw(playlist_id, limit))
+
+
+def _playlist_title_from_raw(raw: str) -> str:
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(entry, dict):
+            return str(entry.get("playlist_title") or "").strip()
+    return ""
+
+
+def import_playlist(text: str, limit: int = MAX_PLAYLIST_ITEMS) -> dict[str, Any]:
+    """Expand a pasted playlist link into {items, title} for saving locally.
+
+    Reuses the same yt-dlp fetch and item parsing as expand_playlist/
+    resolve_link — this just also reads the playlist_title already present
+    in each flat-playlist entry, to suggest a name for the saved playlist.
+    """
+    info = parse(text)
+    playlist_id = (info or {}).get("playlistId") or ""
+    if not playlist_id:
+        raise UrlError("That does not look like a YouTube playlist link")
+    raw = _fetch_playlist_raw(playlist_id, limit)
+    items = _parse_json_lines(raw)
+    if not items:
+        raise UrlError("That playlist is empty or private")
+    return {"items": items, "title": _playlist_title_from_raw(raw)}
 
 
 def fetch_video(video_id: str) -> dict[str, Any]:
