@@ -25,7 +25,28 @@ shells out to `mpv` and `yt-dlp` directly.
 - `parec` (from `libpulse`) — records the plugin's own audio for the
   visualiser. Without it playback works and the bars simply never move.
 
+On Arch (Omarchy's base), install all of these up front with:
+
+```sh
+sudo pacman -S --needed mpv yt-dlp python libpulse
+```
+
 ## Install
+
+```sh
+omarchy plugin add https://github.com/Pursuit2703/ytwidget.git --enable
+```
+
+That's it. The widget appears in your bar immediately. The first time you
+use it, it installs its own Python backend and systemd user unit
+automatically — there is no second command to run, as long as the
+requirements above are already installed.
+
+<details>
+<summary>Installing by hand instead</summary>
+
+If you'd rather not use the `omarchy plugin` CLI (or your Omarchy version
+predates it), a manual clone works the same way:
 
 ```sh
 git clone https://github.com/Pursuit2703/ytwidget.git ~/.config/omarchy/plugins/omar.ytwidget
@@ -33,25 +54,32 @@ git clone https://github.com/Pursuit2703/ytwidget.git ~/.config/omarchy/plugins/
 omarchy-restart-shell
 ```
 
-`install.sh` checks the dependencies, installs the backend, and adds the
-widget to your bar if it is not there already. It never runs anything as
-root: if a step needs it, the commands are printed at the end in one block
-to read and paste.
+`install.sh` checks the dependencies, installs the backend up front, and
+adds the widget to your bar if it is not there already. It never runs
+anything as root: if a step needs it, the commands are printed at the end in
+one block to read and paste.
 
-Under the hood `setup.sh` (which `install.sh` calls) copies the backend into
+Under the hood `setup.sh` (which `install.sh` calls, and which the widget
+also calls itself on first use) copies the backend into
 `~/.local/lib/ytwidget` — stable, deliberately *not* hot-reloaded — installs
 `~/.local/bin/ytwidget-server`, and installs the `ytwidget.service` systemd
 user unit. That unit has no `[Install]` section, so it is never enabled at
 login, only started on demand.
+
+</details>
 
 **The backend is a copy.** Editing `backend/*.py` in a checkout changes
 nothing until you re-run `scripts/setup.sh` and
 `systemctl --user restart ytwidget.service`. The QML is the opposite: it is
 read from the plugin directory and reloads on save.
 
-## Restoring on a new machine
+## Developing on a live checkout
 
-Everything needed is in this repo. From a clean install:
+The above is all a normal install needs. If you want to edit the plugin in
+place instead — e.g. you're hacking on `BarWidget.qml` or the backend and
+want changes to hot-reload from your own working copy rather than a `git
+clone`'d install — clone it anywhere and bind-mount it into the plugins
+directory:
 
 ```sh
 git clone https://github.com/Pursuit2703/ytwidget.git ~/Work/ytwidget
