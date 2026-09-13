@@ -100,6 +100,15 @@ Item {
     else service.showVideo("")
   }
 
+  function queueIndexFor(videoId) {
+    if (!root.service || !videoId) return -1
+    var q = root.service.queue || []
+    for (var i = 0; i < q.length; i++) {
+      if (q[i] && q[i].videoId === videoId) return i
+    }
+    return -1
+  }
+
   function openPlaylist(playlistId) {
     if (!service) return
     service.getPlaylist(playlistId, function(ok, result) {
@@ -215,8 +224,14 @@ Item {
             delegate: TrackRow {
               width: ListView.view.width
               item: modelData
+              queueGlyph: root.queueIndexFor(modelData.videoId) >= 0 ? root.iconClose : root.iconQueueAdd
               onPlayRequested: if (root.service) root.service.playNow(modelData)
-              onQueueRequested: if (root.service) root.service.addToQueue(modelData)
+              onQueueRequested: {
+                if (!root.service) return
+                var idx = root.queueIndexFor(modelData.videoId)
+                if (idx >= 0) root.service.removeFromQueue(idx)
+                else root.service.addToQueue(modelData)
+              }
             }
           }
 
@@ -371,8 +386,14 @@ Item {
             delegate: TrackRow {
               width: ListView.view.width
               item: modelData
+              queueGlyph: root.queueIndexFor(modelData.videoId) >= 0 ? root.iconClose : root.iconQueueAdd
               onPlayRequested: if (root.service) root.service.playNow(modelData)
-              onQueueRequested: if (root.service) root.service.addToQueue(modelData)
+              onQueueRequested: {
+                if (!root.service) return
+                var idx = root.queueIndexFor(modelData.videoId)
+                if (idx >= 0) root.service.removeFromQueue(idx)
+                else root.service.addToQueue(modelData)
+              }
             }
           }
         }
@@ -522,8 +543,8 @@ Item {
                 Layout.fillWidth: true
               }
               Label {
-                text: root.service ? root.service.trackArtist : ""
-                color: root.fgDim
+                text: (root.service && root.service.lastError) || (root.service ? root.service.trackArtist : "")
+                color: (root.service && root.service.lastError) ? Color.urgent : root.fgDim
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
                 elide: Text.ElideRight

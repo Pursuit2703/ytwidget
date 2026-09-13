@@ -55,6 +55,13 @@ def resolve_timeout(warm: bool) -> int:
 def playback_error_message(detail: str) -> str:
     text = str(detail or "").strip()
     lower = text.lower()
+    # Checked before the "sign in" case below: yt-dlp's own last-line message
+    # for this is literally "Sign in to confirm you're not a bot..." — which
+    # would otherwise match that generic check and blame the account/video,
+    # when the real, verified (via -v) underlying cause is an HTTP 429 from
+    # YouTube rate-limiting the request volume, not anything sign-in related.
+    if "429" in lower or "too many requests" in lower or "not a bot" in lower:
+        return "YouTube is rate-limiting requests right now. Try again in a bit."
     if "403" in lower or "forbidden" in lower:
         return "YouTube refused that stream. Try it again."
     if "401" in lower or "unauthorized" in lower or "sign in" in lower:
@@ -385,6 +392,10 @@ class StreamResolver:
         self.kbps = kbps
         self._cache: dict[str, tuple[float, str]] = {}
         self._lock = threading.Lock()
+        # video_id -> the event the in-flight resolve for it will set when
+        # done, and (if it failed) the error text to hand to anyone waiting.
+        self._inflight: dict[str, threading.Event] = {}
+        self._inflight_error: dict[str, str] = {}
 
     def set_quality(self, kbps: int) -> None:
         self.kbps = kbps
@@ -395,15 +406,54 @@ class StreamResolver:
         video_id = str(video_id or "").strip()
         if not video_id:
             raise PlayerError("Missing video id")
-        now = time.time()
-        with self._lock:
-            cached = self._cache.get(video_id)
-            if cached and cached[0] > now:
-                return cached[1]
-        url = self._yt_dlp(video_id)
-        with self._lock:
-            self._cache[video_id] = (now + 4 * 60 * 60, url)
-        return url
+        while True:
+            now = time.time()
+            with self._lock:
+                cached = self._cache.get(video_id)
+                if cached and cached[0] > now:
+                    return cached[1]
+                event = self._inflight.get(video_id)
+                if event is None:
+                    # Nobody is resolving this video right now — claim it so
+                    # a concurrent caller (the foreground load racing a
+                    # background prefetch, most often) waits on us instead
+                    # of launching its own redundant yt-dlp process.
+                    event = threading.Event()
+                    self._inflight[video_id] = event
+                    owner = True
+                else:
+                    owner = False
+            if owner:
+                try:
+                    url = self._yt_dlp(video_id)
+                except Exception as exc:
+                    with self._lock:
+                        self._inflight_error[video_id] = str(exc)
+                        self._inflight.pop(video_id, None)
+                    event.set()
+                    raise
+                with self._lock:
+                    self._cache[video_id] = (time.time() + 4 * 60 * 60, url)
+                    self._inflight_error.pop(video_id, None)
+                    self._inflight.pop(video_id, None)
+                event.set()
+                return url
+            # Someone else is already resolving this exact video. Wait for
+            # their outcome (bounded by the same worst-case timeout their own
+            # yt-dlp call is bounded by) rather than starting a second one —
+            # only retry ourselves, as a fresh attempt, once theirs is done
+            # and it turns out to have failed.
+            event.wait(RESOLVE_TIMEOUT_COLD)
+            with self._lock:
+                cached = self._cache.get(video_id)
+                if cached and cached[0] > now:
+                    return cached[1]
+                self._inflight_error.pop(video_id, None)
+            # Either they failed (nothing cached), or we timed out still
+            # waiting on them, or a stale error was left with no owner left
+            # to have caused it — in every case, loop back: it either makes
+            # us the new owner for a fresh attempt, or waits again on a
+            # still-running one. Never launches a second yt-dlp in parallel.
 
     def prefetch(self, video_id: str) -> None:
         def worker() -> None:
