@@ -91,6 +91,25 @@ Item {
     })
   }
 
+  // Appends the link's video (or its whole playlist) to the queue as one
+  // batch, without touching playback or replacing what's already queued —
+  // the deliberate alternative to openLinkNow's replace-and-play.
+  property bool enqueuingLink: false
+
+  function enqueueLinkNow() {
+    var link = root.searchText.trim()
+    if (!link || !service) return
+    enqueuingLink = true
+    searchError = ""
+    service.enqueueLink(link, function(ok, result, message) {
+      enqueuingLink = false
+      if (!ok) { searchError = message || "Could not queue that link"; return }
+      root.searchResults = []
+      root.searchText = ""
+      root.activeTab = "queue"
+    })
+  }
+
   function submitSearchField() {
     liveSearchTimer.stop()
     if (root.searchIsLink) openLinkNow()
@@ -190,6 +209,13 @@ Item {
                   : (root.searchIsLink ? "Open link" : "Search")
             iconText: root.searchIsLink ? root.iconPlay : root.iconSearch
             onClicked: root.submitSearchField()
+          }
+          Button {
+            visible: root.searchIsLink
+            text: root.enqueuingLink ? "Queueing…" : "Add to queue"
+            iconText: root.iconQueueAdd
+            enabled: !root.enqueuingLink
+            onClicked: root.enqueueLinkNow()
           }
         }
 
@@ -341,7 +367,13 @@ Item {
               spacing: Style.space(8)
               Chicklet { iconText: root.iconPrev; tooltipText: "Back"; onClicked: root.activePlaylistId = "" }
               Label { text: root.activePlaylistName; color: root.fg; font.bold: true; font.family: Style.font.family
-                font.pixelSize: Style.font.subtitle }
+                font.pixelSize: Style.font.subtitle; Layout.fillWidth: true; elide: Text.ElideRight }
+              Button {
+                text: "Add to queue"
+                iconText: root.iconQueueAdd
+                enabled: root.activePlaylistItems.length > 0
+                onClicked: root.service && root.service.addAllToQueue(root.activePlaylistItems, function() {})
+              }
             }
 
             ListView {

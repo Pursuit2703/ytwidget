@@ -110,6 +110,12 @@ Item {
   // A playlist link deliberately replaces the queue — see server.open_link.
   function openLink(url, callback) { send("open_link", { url: url, play: true }, callback) }
   function addToQueue(item) { send("add_to_queue", { item: item }) }
+  // Appends every item in one atomic queue update (one broadcast), instead
+  // of looping addToQueue per item — matters for a whole playlist's worth.
+  function addAllToQueue(items, callback) { send("add_to_queue", { items: items }, callback) }
+  // Same link expansion as openLink, but appends to the queue instead of
+  // replacing it and never touches playback.
+  function enqueueLink(url, callback) { send("enqueue_link", { url: url }, callback) }
   function removeFromQueue(index) { send("remove_from_queue", { index: index }) }
   function togglePlayback() { send("toggle", {}) }
   function pause() { send("pause", {}) }

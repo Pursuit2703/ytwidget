@@ -623,6 +623,28 @@ class QueuePlayer:
                 self.resolver.prefetch(nxt)
         self.on_change()
 
+    def add_many_to_queue(self, items: list[dict]) -> int:
+        tracks = [item for item in items if isinstance(item, dict) and item.get("videoId")]
+        if not tracks:
+            raise PlayerError("Nothing playable in that selection")
+        was_empty = self.index < 0
+        self.queue.extend(tracks)
+        # Same "point at what we just added" rule as add_to_queue, for the
+        # same reason: an empty queue has no current track to preserve.
+        if was_empty:
+            self.index = 0
+            try:
+                self.duration_ms = max(0, int(tracks[0].get("durationMs") or 0))
+            except (TypeError, ValueError):
+                self.duration_ms = 0
+        self.note_activity()
+        if self.current and self.current.get("videoId"):
+            nxt = self._upcoming_video_id()
+            if nxt:
+                self.resolver.prefetch(nxt)
+        self.on_change()
+        return len(tracks)
+
     def remove_from_queue(self, index: int) -> None:
         if not (0 <= index < len(self.queue)):
             return

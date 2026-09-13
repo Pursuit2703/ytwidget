@@ -61,6 +61,8 @@ Item {
   function playQueueFrom(items, index) { conn.playQueueFrom(items, index) }
   function openLink(url, callback) { conn.openLink(url, callback) }
   function addToQueue(item) { conn.addToQueue(item) }
+  function addAllToQueue(items, callback) { conn.addAllToQueue(items, callback) }
+  function enqueueLink(url, callback) { conn.enqueueLink(url, callback) }
   function removeFromQueue(index) { conn.removeFromQueue(index) }
   function togglePlayback() { conn.togglePlayback() }
   function pause() { conn.pause() }

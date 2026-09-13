@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "omar.ytwidget",
   "name": "YT Widget",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "author": "Pursuit2703",
   "license": "MIT",
   "description": "Native plain-YouTube player for Omarchy. Search, playlists, queue, EQ, spectrum, mini player. Local mpv + yt-dlp, no browser, no login.",

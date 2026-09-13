@@ -512,11 +512,24 @@ class Backend:
                 raise ValueError("item or items is required")
             return self.state()
         if command == "add_to_queue":
+            items = message.get("items")
+            if isinstance(items, list):
+                added = self.player.add_many_to_queue(items)
+                return {"queue": list(self.player.queue), "added": added}
             item = message.get("item") or {}
             if not isinstance(item, dict):
                 raise ValueError("item is required")
             self.player.add_to_queue(item)
             return {"queue": list(self.player.queue)}
+        if command == "enqueue_link":
+            # Same expansion as open_link, but appended rather than replacing
+            # the queue and without touching playback.
+            expanded = urls_mod.resolve_link(str(message.get("url") or ""))
+            items = expanded.get("items") or []
+            if not items:
+                raise UrlError("That link has nothing playable in it")
+            added = self.player.add_many_to_queue(items)
+            return self.state() | {"kind": expanded.get("kind") or "", "added": added}
         if command == "remove_from_queue":
             # `or -1` would turn a perfectly valid index 0 into -1, making the
             # first row of the queue impossible to remove.
