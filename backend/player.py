@@ -731,6 +731,13 @@ class QueuePlayer:
         # most of all — and then this fast path unpauses an mpv that has no
         # file open, which looks exactly like the play button doing nothing.
         if not self.mpv.running or self._loaded_video_id != video_id or self._mpv_idle:
+            # This path reloads from scratch, which always starts at 0 — fine
+            # for a genuinely different track, but if mpv only went idle
+            # because a paused stream's signed URL went stale, we were still
+            # on this same track and shouldn't lose the position it was
+            # paused at.
+            if self._loaded_video_id == video_id and self.position_ms > 0:
+                self.set_resume_position(self.position_ms)
             self._play_current(start=True)
             self._apply_resume_position()
             return
