@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import qs.Ui
@@ -78,6 +79,11 @@ BarWidget {
   // can look focused (blinking cursor) while keystrokes never arrive.
   onPopupOpenChanged: {
     if (!popupOpen) return
+    // Baseline for the dismiss watcher further down: the window that was
+    // focused as the card came up. Opening the card does not disturb it — a
+    // layer surface taking the keyboard grab leaves the focused toplevel
+    // exactly where it was.
+    popupFocusToplevel = ToplevelManager.activeToplevel
     focusFieldTimer.start()
     // Opening this card is a good predictor that the video button is about to
     // be pressed; resolving now means the click costs no extraction.
@@ -669,6 +675,93 @@ BarWidget {
       gaps: root.ambientGaps
       opacity: root.hasTrack && root.playing && !root.ambientSilent ? root.ambientOpacity : 0
       Behavior on opacity { NumberAnimation { duration: 420; easing.type: Easing.OutQuad } }
+    }
+  }
+
+  // Dismissing the mini player.
+  //
+  // The card's own window covers the bar's screen and nothing else, so a click
+  // was only ever seen if it landed on that screen. Everywhere else — the
+  // other monitor, another workspace, a window focused from the keyboard — the
+  // card stayed up still holding the compositor's exclusive keyboard grab, and
+  // the only way out was to come back and click the screen it was on.
+  //
+  // It takes two halves, because neither covers the other's cases:
+  //
+  //   * Clicks, via a transparent catcher over every other output (below).
+  //     Hyprland's events cannot stand in for this: clicking the window that
+  //     was already focused when the card opened re-focuses nothing, so the
+  //     compositor emits no event at all — which is exactly the "I clicked
+  //     over there and nothing happened" case.
+  //   * Focus moves with no click — another window focused by keybind, a
+  //     workspace switch, another shell surface taking the keyboard — which no
+  //     catcher window ever sees, and which a layer surface would otherwise
+  //     simply outlive.
+  property var popupFocusToplevel: null
+
+  // Focus moving to a different window closes the card. Deliberately the
+  // compositor's *toplevel*, not Hyprland's activewindow event: Hyprland
+  // re-emits that every time the focused window's title changes, so a
+  // background tab renaming itself would shut the card mid-search, while the
+  // toplevel's identity only changes when the focus really does.
+  Connections {
+    target: ToplevelManager
+
+    function onActiveToplevelChanged() {
+      if (!root.popupOpen) return
+      var active = ToplevelManager.activeToplevel
+      if (active && active !== root.popupFocusToplevel) root.popupOpen = false
+    }
+  }
+
+  Connections {
+    target: Hyprland
+
+    function onRawEvent(event) {
+      if (!root.popupOpen) return
+      var name = String(event.name)
+
+      if (name === "workspace" || name === "workspacev2") {
+        // A layer surface outlives the workspace it was opened on, so without
+        // this the card follows you to the next one, grab and all.
+        root.popupOpen = false
+      } else if (name === "openlayer") {
+        // Someone else's popup, launcher or menu is opening and wants the
+        // keyboard. This widget's own surfaces are not that — the card raises
+        // the ambient strip and its own catchers from inside itself.
+        if (String(event.data || "").indexOf("omar-ytwidget") !== 0)
+          root.popupOpen = false
+      }
+    }
+  }
+
+  // The click catchers for every output the card does not cover itself. Fully
+  // transparent and input-only: their whole job is that the first click
+  // anywhere outside the card closes it, the same way clicking the card's own
+  // screen always did.
+  Variants {
+    model: root.popupOpen ? Quickshell.screens : []
+
+    PanelWindow {
+      required property var modelData
+      screen: modelData
+      visible: root.popupOpen && !!modelData
+               && (!root.barScreen || modelData.name !== root.barScreen.name)
+      anchors { top: true; bottom: true; left: true; right: true }
+      color: "transparent"
+      WlrLayershell.namespace: "omar-ytwidget-dismiss"
+      WlrLayershell.layer: WlrLayer.Overlay
+      // The card keeps the keyboard grab; these only ever catch the pointer.
+      WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+      exclusionMode: ExclusionMode.Ignore
+
+      MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+        // On press, not on click: a press that drags off the screen edge is
+        // still the user pointing at something that is not the card.
+        onPressed: root.popupOpen = false
+      }
     }
   }
 
