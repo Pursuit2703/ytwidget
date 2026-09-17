@@ -607,6 +607,22 @@ BarWidget {
     onTriggered: root.ambientSilent = true
   }
 
+  // The monitor this copy of the widget is on.
+  //
+  // A bar surface is built per output (the bar's `Variants { model:
+  // Quickshell.screens }`), so this file runs once per monitor — and a
+  // PanelWindow that never sets `screen` lands on whichever output Quickshell
+  // picks first. Every copy therefore stacked its windows on that one screen:
+  // two ambient strips over the laptop panel, none over the external one, each
+  // masking with gaps it had measured from a different bar. The strip that had
+  // the other monitor's gaps painted the spectrum straight across this
+  // monitor's modules, which is what put bars under the clock and the tray.
+  //
+  // Pinning both windows to this instance's own screen is also what puts the
+  // spectrum on every monitor: one bar, one strip, its own gaps.
+  readonly property var barWindow: root.QsWindow ? root.QsWindow.window : null
+  readonly property var barScreen: barWindow ? barWindow.screen : null
+
   // The ambient spectrum behind the bar.
   //
   // WlrLayer.Bottom puts it above the wallpaper and below the bar, and the
@@ -618,8 +634,20 @@ BarWidget {
   // exactly as it did before this existed.
   PanelWindow {
     id: ambient
-    visible: root.ambientEnabled && !!root.bar && !root.bar.vertical
-    anchors { top: true; left: true; right: true }
+    screen: root.barScreen
+    // No screen yet means the window would fall back to Quickshell's first
+    // output, which is the stacking this is here to avoid. Nothing is playing
+    // that early anyway, so waiting costs nothing.
+    visible: root.ambientEnabled && !!root.barScreen && !!root.bar && !root.bar.vertical
+    // Follows the bar to whichever horizontal edge it sits on. Anchored to the
+    // top unconditionally, a bottom bar left the strip stranded across the top
+    // of the wallpaper. Vertical bars never show it at all (see `visible`).
+    anchors {
+      top: !root.bar || root.bar.position !== "bottom"
+      bottom: !!root.bar && root.bar.position === "bottom"
+      left: true
+      right: true
+    }
     implicitHeight: root.barSize
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
@@ -653,6 +681,10 @@ BarWidget {
   // Hyprland focus grab — so this popup is built the same way.
   PanelWindow {
     id: popup
+    // Same per-monitor pinning as the ambient strip: without it the mini
+    // player opens on whichever output Quickshell picked first, not the one
+    // whose chip was clicked.
+    screen: root.barScreen
     visible: root.popupOpen
     // Full-screen + transparent, same trick go-prompt uses: a background
     // MouseArea catches outside clicks to dismiss, while the actual card
