@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Hyprland
@@ -59,6 +60,16 @@ BarWidget {
 
   property bool popupOpen: false
   property string miniSearchText: ""
+  // How many results the mini card asks for, and how many of them it shows
+  // without scrolling. Six used to be the whole list because the list was a
+  // plain Column — every extra row grew the card, so the card had to stay
+  // stingy. Now the list scrolls at `miniVisibleResults` rows, so asking for
+  // more costs no height at all.
+  readonly property int miniResultLimit: Math.max(3, Math.min(25,
+    Number(root.setting("miniResults", 12)) || 12))
+  readonly property int miniVisibleResults: 5
+  readonly property real miniRowHeight: Style.space(38)
+  readonly property real miniRowSpacing: Style.space(2)
   property var miniSearchResults: []
   property int miniSelected: 0
   property bool miniSearching: false
@@ -116,7 +127,7 @@ BarWidget {
     if (!miniSearchText.trim()) { miniSearchResults = []; miniSelected = 0; return }
     if (!ytService) return
     miniSearching = true
-    ytService.search(miniSearchText.trim(), 6, function(ok, result) {
+    ytService.search(miniSearchText.trim(), root.miniResultLimit, function(ok, result) {
       miniSearching = false
       miniSearchResults = ok && result ? (result.items || []) : []
       miniSelected = 0
@@ -1211,25 +1222,43 @@ BarWidget {
         onTriggered: root.runMiniSearch(false)
       }
 
-      Column {
+      // Results scroll rather than stretch the card. As a plain Column every
+      // extra result pushed the card further down the screen, which is what
+      // kept the list down to a handful; capped at `miniVisibleResults` rows
+      // the card can ask for a dozen and stay the same size.
+      //
+      // ApplyRange over the full viewport is what keeps arrow-key selection
+      // on screen: the view scrolls just enough to hold the current row,
+      // instead of the selection walking off the bottom.
+      ListView {
+        id: miniResultList
         width: parent.width
-        spacing: Style.space(2)
         visible: root.miniSearchResults.length > 0
+        height: {
+          var shown = Math.min(root.miniSearchResults.length, root.miniVisibleResults)
+          return shown <= 0 ? 0
+            : shown * root.miniRowHeight + (shown - 1) * root.miniRowSpacing
+        }
+        model: root.miniSearchResults
+        spacing: root.miniRowSpacing
+        clip: true
+        currentIndex: root.miniSelected
+        highlightRangeMode: ListView.ApplyRange
+        preferredHighlightBegin: 0
+        preferredHighlightEnd: height
+        ScrollBar.vertical: ScrollBar {}
 
-        Repeater {
-          model: root.miniSearchResults
-          TrackRow {
-            width: column.width
-            item: modelData
-            compact: true
-            fg: root.bar.foreground
-            highlighted: index === root.miniSelected
-            onPlayRequested: {
-              root.miniSelected = index
-              if (root.ytService) root.ytService.playNow(modelData)
-            }
-            onQueueRequested: root.ytService && root.ytService.addToQueue(modelData)
+        delegate: TrackRow {
+          width: miniResultList.width
+          item: modelData
+          compact: true
+          fg: root.bar.foreground
+          highlighted: index === root.miniSelected
+          onPlayRequested: {
+            root.miniSelected = index
+            if (root.ytService) root.ytService.playNow(modelData)
           }
+          onQueueRequested: root.ytService && root.ytService.addToQueue(modelData)
         }
       }
 

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "omar.ytwidget",
   "name": "YT Widget",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "author": "Pursuit2703",
   "license": "MIT",
   "description": "Native plain-YouTube player for Omarchy. Search, playlists, queue, EQ, spectrum, mini player. Local mpv + yt-dlp, no browser, no login.",
@@ -32,6 +32,7 @@
     "defaults": {
       "idleShutdownMinutes": 15,
       "maxWidth": 128,
+      "miniResults": 12,
       "crossfadeMs": 500,
       "subtitleLang": "en",
       "videoQuality": 1080,
@@ -61,6 +62,16 @@
         "step": 10,
         "defaultValue": 128,
         "description": "How much room the title gets. The hover controls need about 128, so much above that leaves a gap in the bar while you hover the chip. The title scrolls, so a narrow window still reads."
+      },
+      {
+        "key": "miniResults",
+        "type": "integer",
+        "label": "Mini player search results",
+        "min": 3,
+        "max": 25,
+        "step": 1,
+        "defaultValue": 12,
+        "description": "How many results the mini player fetches for a search. The list scrolls after five rows, so a bigger number does not make the card any taller."
       },
       {
         "key": "crossfadeMs",

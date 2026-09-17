@@ -113,7 +113,8 @@ exposed live in Omarchy's widget settings UI — no config file editing needed:
 | Setting | Default | Notes |
 |---|---|---|
 | `idleShutdownMinutes` | 15 | Stop local playback when idle (`0` = never) |
-| `maxWidth` | 150 | Bar title width, px |
+| `maxWidth` | 128 | Bar title width, px |
+| `miniResults` | 12 | Search results the mini player fetches (the list scrolls after five rows) |
 | `crossfadeMs` | 500 | Crossfade between tracks (`0` = hard cut) |
 | `subtitleLang` | `en` | Preferred subtitle language for the video window |
 | `videoQuality` | 1080 | Preferred video window height |
