@@ -51,9 +51,33 @@ Item {
   property string importPlaylistError: ""
   property bool eqExpanded: false
 
+  // The payload is how the mini player hands its search over (see
+  // BarWidget.openFullPlayer). `search` prefills the field and `results` are
+  // the rows the card was already showing, so the panel opens on the same
+  // list instead of an empty Search tab with the query lost. The panel asks
+  // for far more results than the card does, so the same query is re-run
+  // behind those rows and the list fills out when it lands.
   function open(payloadJson) {
     opened = true
     if (service) service.ensureRunning()
+
+    var payload = ({})
+    try { payload = JSON.parse(payloadJson || "{}") || ({}) } catch (e) { payload = ({}) }
+
+    var handed = typeof payload.search === "string" ? payload.search : ""
+    if (handed.trim() !== "") {
+      root.activeTab = "search"
+      root.searchError = ""
+      root.searchText = handed
+      if (Array.isArray(payload.results) && payload.results.length > 0)
+        root.searchResults = payload.results
+      // Assigning searchText runs the field's onTextChanged, which arms the
+      // as-you-type timer; stop it and run the search directly so the refresh
+      // starts now rather than 300ms after a keystroke nobody typed.
+      liveSearchTimer.stop()
+      if (!root.searchIsLink) runSearch()
+    }
+
     Qt.callLater(function() {
       if (searchField) searchField.forceActiveFocus()
     })

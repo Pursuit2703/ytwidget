@@ -116,10 +116,24 @@ BarWidget {
   // the popup can never be reopened again.
   function close() { popupOpen = false }
 
+  // Carries the mini card's search into the full player instead of opening it
+  // on an empty Search tab: the query goes into its field and the rows the
+  // card was already showing go with it, so the same results are on screen
+  // immediately. The panel searches wider than the card does, so it re-runs
+  // the query behind them and the list fills out (see Panel.open).
+  //
+  // `summon`, not `toggle`: this button means "show me the full player", and
+  // toggle *closes* the panel whenever it happens to be open already — which
+  // threw the payload away with it.
   function openFullPlayer() {
+    var payload = {
+      search: root.miniSearchText,
+      results: root.miniSearchResults || []
+    }
     popupOpen = false
     toggleProcess.running = false
-    toggleProcess.command = ["/usr/bin/omarchy-shell", "shell", "toggle", moduleName, "{}"]
+    toggleProcess.command = ["/usr/bin/omarchy-shell", "shell", "summon", moduleName,
+                             JSON.stringify(payload)]
     toggleProcess.running = true
   }
 
