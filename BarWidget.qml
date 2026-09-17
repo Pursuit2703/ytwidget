@@ -82,12 +82,12 @@ BarWidget {
   implicitWidth: row.implicitWidth + Style.space(14)
   implicitHeight: barSize
 
-  // PopupCard opens a separate popup surface — nothing inside it gets
-  // keyboard focus automatically. Same fix SearchableDropdown/go-prompt use.
-  // A short delay (not Qt.callLater, which fires next tick) gives the
-  // HyprlandFocusGrab time to actually establish the compositor-level
-  // keyboard grab before we ask Qt for active focus — otherwise the field
-  // can look focused (blinking cursor) while keystrokes never arrive.
+  // Nothing inside a popup surface gets keyboard focus automatically. Same
+  // fix SearchableDropdown/go-prompt use: a short delay (not Qt.callLater,
+  // which fires next tick) gives the focus grab time to establish the
+  // compositor-level keyboard grab before we ask Qt for active focus —
+  // otherwise the field can look focused (blinking cursor) while keystrokes
+  // never arrive.
   onPopupOpenChanged: {
     if (!popupOpen) return
     // Baseline for the dismiss watcher further down: the window that was
@@ -705,30 +705,36 @@ BarWidget {
 
   // Dismissing the mini player.
   //
-  // The card's own window covers the bar's screen and nothing else, so a click
-  // was only ever seen if it landed on that screen. Everywhere else — the
-  // other monitor, another workspace, a window focused from the keyboard — the
-  // card stayed up still holding the compositor's exclusive keyboard grab, and
-  // the only way out was to come back and click the screen it was on.
+  // The card used to hold the keyboard with an exclusive layer-shell grab,
+  // and that is what made it impossible to click away from: Hyprland routes
+  // *all* input to an exclusive surface, so a click on any other output was
+  // dropped by the compositor before anything could see it. Not the window
+  // you clicked, and not a catcher surface of our own on that output either —
+  // the click simply went nowhere, which is why the only way out was to click
+  // the screen the card was already on.
   //
-  // It takes two halves, because neither covers the other's cases:
-  //
-  //   * Clicks, via a transparent catcher over every other output (below).
-  //     Hyprland's events cannot stand in for this: clicking the window that
-  //     was already focused when the card opened re-focuses nothing, so the
-  //     compositor emits no event at all — which is exactly the "I clicked
-  //     over there and nothing happened" case.
-  //   * Focus moves with no click — another window focused by keybind, a
-  //     workspace switch, another shell surface taking the keyboard — which no
-  //     catcher window ever sees, and which a layer surface would otherwise
-  //     simply outlive.
+  // A focus grab is the primitive that actually fits: input is routed to the
+  // listed windows, and a click anywhere else clears the grab rather than
+  // vanishing into it. It is what every Omarchy bar popup uses (see
+  // Ui/PopupCard.qml), so the card now dismisses the way the rest of the bar
+  // already does.
   property var popupFocusToplevel: null
 
-  // Focus moving to a different window closes the card. Deliberately the
-  // compositor's *toplevel*, not Hyprland's activewindow event: Hyprland
-  // re-emits that every time the focused window's title changes, so a
-  // background tab renaming itself would shut the card mid-search, while the
-  // toplevel's identity only changes when the focus really does.
+  HyprlandFocusGrab {
+    windows: [popup]
+    active: root.popupOpen
+    onCleared: root.popupOpen = false
+  }
+
+  // Focus moving to a different window closes the card too. The grab only
+  // hears about clicks, and focus moves perfectly well without one — a
+  // keybind, a workspace switch, a window opening somewhere else.
+  //
+  // Deliberately the compositor's *toplevel*, not Hyprland's activewindow
+  // event: Hyprland re-emits that every time the focused window's title
+  // changes, so a background tab renaming itself would shut the card
+  // mid-search, while the toplevel's identity only changes when the focus
+  // really does.
   Connections {
     target: ToplevelManager
 
@@ -752,51 +758,24 @@ BarWidget {
         root.popupOpen = false
       } else if (name === "openlayer") {
         // Someone else's popup, launcher or menu is opening and wants the
-        // keyboard. This widget's own surfaces are not that — the card raises
-        // the ambient strip and its own catchers from inside itself.
+        // keyboard. This widget's own surfaces are not that — the card can
+        // raise the ambient strip from inside itself.
         if (String(event.data || "").indexOf("omar-ytwidget") !== 0)
           root.popupOpen = false
       }
     }
   }
 
-  // The click catchers for every output the card does not cover itself. Fully
-  // transparent and input-only: their whole job is that the first click
-  // anywhere outside the card closes it, the same way clicking the card's own
-  // screen always did.
-  Variants {
-    model: root.popupOpen ? Quickshell.screens : []
-
-    PanelWindow {
-      required property var modelData
-      screen: modelData
-      visible: root.popupOpen && !!modelData
-               && (!root.barScreen || modelData.name !== root.barScreen.name)
-      anchors { top: true; bottom: true; left: true; right: true }
-      color: "transparent"
-      WlrLayershell.namespace: "omar-ytwidget-dismiss"
-      WlrLayershell.layer: WlrLayer.Overlay
-      // The card keeps the keyboard grab; these only ever catch the pointer.
-      WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-      exclusionMode: ExclusionMode.Ignore
-
-      MouseArea {
-        anchors.fill: parent
-        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
-        // On press, not on click: a press that drags off the screen edge is
-        // still the user pointing at something that is not the card.
-        onPressed: root.popupOpen = false
-      }
-    }
-  }
-
-  // PopupCard (a HyprlandFocusGrab-based popup) never reliably delivered
-  // keyboard input to the search field here — sometimes a blinking cursor
-  // with no characters landing, only "working" after the window lost and
-  // regained focus. go-prompt (omar.go-prompt/GoPrompt.qml), a plugin on
-  // this same system whose text input demonstrably works, uses a real
-  // WlrLayershell surface with Exclusive keyboard focus instead of a
-  // Hyprland focus grab — so this popup is built the same way.
+  // A real WlrLayershell surface rather than a PopupCard: PopupCard never
+  // reliably delivered keyboard input to the search field here — a blinking
+  // cursor with no characters landing, only "working" once the window had
+  // lost and regained focus.
+  //
+  // The keyboard comes from the focus grab above, not from the surface
+  // itself. Exclusive layer-shell focus delivers keystrokes too, and is what
+  // this used to do, but it puts the compositor in a state where every click
+  // on every other monitor is swallowed (see above). The grab hands this
+  // surface the keyboard without that.
   PanelWindow {
     id: popup
     // Same per-monitor pinning as the ambient strip: without it the mini
@@ -813,7 +792,7 @@ BarWidget {
     color: "transparent"
     WlrLayershell.namespace: "omar-ytwidget-popup"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Ignore
 
     MouseArea {
