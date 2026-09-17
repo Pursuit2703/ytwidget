@@ -859,16 +859,28 @@ class QueuePlayer:
         else:
             self.play()
 
-    def stop(self) -> None:
+    def _stop_deck(self) -> None:
+        """Silence mpv without touching queue, error or `playing`.
+
+        The bookkeeping around stopping differs per caller — a failed load
+        keeps its error, `stop()` resets the position — but every one of them
+        has to actually stop the audio, which is the part that kept getting
+        left out.
+        """
         if self.mpv.running:
             try:
                 self.mpv.command(["stop"])
             except Exception:
                 pass
+        self._loaded_video_id = ""
+        self._mpv_idle = True
+        self._tail_fade_for = ""
+        self._restore_volume()
+
+    def stop(self) -> None:
+        self._stop_deck()
         self.playing = False
         self.position_ms = 0
-        self._loaded_video_id = ""
-        self._restore_volume()
         self.note_activity()
         self.on_change()
 
@@ -877,6 +889,11 @@ class QueuePlayer:
         if self._advance():
             self._play_current(start=True)
         else:
+            # Nothing to advance to. mpv is still playing the last track —
+            # this is a button press, not an end-of-file — so clearing the
+            # flag alone would leave audio running under a UI that says
+            # playback stopped.
+            self._stop_deck()
             self.playing = False
             self.on_change()
 
@@ -1132,7 +1149,21 @@ class QueuePlayer:
             else:
                 self._restore_volume()
         except Exception as exc:
-            self._restore_volume()
+            # resolve() fails before loadfile ever runs, so the deck is still
+            # playing whatever was on before this call — while the queue has
+            # already moved to the track being asked for and its name has
+            # already gone out, to the UI and to mpv's own force-media-title.
+            # Leaving mpv alone therefore leaves the previous track playing
+            # under the new track's name, with the transport reading
+            # "paused": audible music that matches nothing on screen, and no
+            # way to tell from the outside that the two had come apart.
+            #
+            # Stopping the deck is what `playing = False` below has always
+            # claimed happened. Clearing the loaded id matters too: play()
+            # short-circuits to an unpause when the requested track is
+            # already loaded, and the id left behind is the one that never
+            # loaded.
+            self._stop_deck()
             self.error = playback_error_message(str(exc))
             self.playing = False
             self.resolving = False
