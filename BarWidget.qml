@@ -45,7 +45,6 @@ BarWidget {
   // are about to do something to; a playing one you only want to read.
   readonly property bool paused: hasTrack && !playing
   readonly property bool showControls: hasTrack && (pillHover.hovered || paused)
-  readonly property bool showNote: !hasTrack || showControls
   readonly property bool showTitle: hasTrack && !showControls
 
   // The chip holds one width for as long as a track is loaded, whatever it is
@@ -57,9 +56,10 @@ BarWidget {
   //   title alone, no note   =              124
   //
   // Only losing the track shrinks it, down to the bare note.
-  readonly property real noteSpan: Style.space(26) + Style.space(4)
-  readonly property real controlsSpan: 3 * Style.space(26) + 2 * Style.space(8)
-  readonly property real trackSpan: noteSpan + controlsSpan
+  readonly property real ctrlGap: Style.space(8)
+  // Note + prev + play + next, in the bar's own icon slots. The title is given
+  // this same width, so the two simply cross-fade in place.
+  readonly property real trackSpan: 4 * Style.bar.iconSlot + 3 * ctrlGap
   // The setting still widens the title, but it widens the locked width with
   // it, so the chip stays the same size in every state either way.
   readonly property real maxLabelWidth: Math.max(trackSpan,
@@ -282,29 +282,6 @@ BarWidget {
     // own space over. The slot is sized to whichever of the two is wider, so
     // the pill does not resize as you move onto it and shove the icons beside
     // it around.
-    // The way into the player, and the whole widget when nothing is loaded.
-    // It steps aside while a track is actually playing: the title is the only
-    // thing worth the space then, and the note reappears the moment you hover
-    // or pause, which is when you want something to press.
-    WidgetButton {
-      id: noteButton
-      visible: root.showNote
-      bar: root.bar
-      text: root.musicGlyph
-      fontSize: Style.font.icon
-      foreground: root.lastError !== "" ? Color.urgent : root.bar.barForeground
-      fixedWidth: Style.space(26)
-      fixedHeight: root.barSize
-      tooltipText: root.lastError !== ""
-        ? root.lastError
-        : (root.hasTrack
-          ? Api.barTrackText(root.title, root.artist, true, true)
-          : "Nothing playing")
-      onPressed: function(mouseButton) {
-        if (mouseButton === Qt.LeftButton) root.popupOpen = !root.popupOpen
-      }
-    }
-
     Item {
       id: mediaSlot
       anchors.verticalCenter: parent.verticalCenter
@@ -316,10 +293,9 @@ BarWidget {
       //
       // With no track there is nothing to show but the note, and the slot
       // closes entirely — the one size change left, and the one worth seeing.
-      readonly property bool expanded: root.hasTrack || root.lastError !== ""
-      width: expanded
-        ? root.maxLabelWidth - (root.showNote ? root.noteSpan : 0)
-        : 0
+      width: root.hasTrack || root.lastError !== ""
+        ? root.maxLabelWidth
+        : Style.bar.iconSlot
       height: root.barSize
       // Without this the transport buttons spill out of the slot while it is
       // still animating shut.
@@ -337,17 +313,44 @@ BarWidget {
         anchors.left: parent.left
         anchors.verticalCenter: parent.verticalCenter
         spacing: Style.space(8)
-        enabled: root.showControls
-        opacity: root.showControls ? 1 : 0
+        // Shown whenever the controls are, and on its own when there is no
+        // track at all — it is the way into the player either way.
+        enabled: root.showControls || !root.hasTrack
+        opacity: (root.showControls || !root.hasTrack) ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
+
+        // The note lives inside the slot, ahead of the transport, rather than
+        // outside it. Out there it was laid out beside the slot, so appearing
+        // on hover pushed the controls sideways and the swap read as the chip
+        // resizing even though the total never changed. In here both the
+        // title and this row start at the same left edge and simply cross-
+        // fade: nothing moves at all.
+        WidgetButton {
+          id: noteButton
+          bar: root.bar
+          text: root.musicGlyph
+          fontSize: Style.bar.iconFont
+          foreground: root.lastError !== "" ? Color.urgent : root.bar.barForeground
+          fixedWidth: Style.bar.iconSlot
+          fixedHeight: root.barSize
+          tooltipText: root.lastError !== ""
+            ? root.lastError
+            : (root.hasTrack
+              ? Api.barTrackText(root.title, root.artist, true, true)
+              : "Nothing playing")
+          onPressed: function(mouseButton) {
+            if (mouseButton === Qt.LeftButton) root.popupOpen = !root.popupOpen
+          }
+        }
 
         WidgetButton {
           id: prevButton
+          visible: root.hasTrack
           bar: root.bar
           text: "\u{f04ae}"
-          fontSize: Style.font.icon
+          fontSize: Style.bar.iconFont
           foreground: root.bar.barForeground
-          fixedWidth: Style.space(26)
+          fixedWidth: Style.bar.iconSlot
           fixedHeight: root.barSize
           tooltipText: "Previous"
           onPressed: function(mouseButton) {
@@ -356,11 +359,12 @@ BarWidget {
         }
         WidgetButton {
           id: playButton
+          visible: root.hasTrack
           bar: root.bar
           text: root.hasTrack ? root.playIcon : "󰝚"
-          fontSize: Style.font.icon
+          fontSize: Style.bar.iconFont
           foreground: root.bar.barForeground
-          fixedWidth: Style.space(26)
+          fixedWidth: Style.bar.iconSlot
           fixedHeight: root.barSize
           // Hovering the chip fades the marquee out and swaps these controls
           // in, so the error text disappears at the exact moment you lean in
@@ -374,11 +378,12 @@ BarWidget {
         }
         WidgetButton {
           id: nextButton
+          visible: root.hasTrack
           bar: root.bar
           text: "\u{f04ad}"
-          fontSize: Style.font.icon
+          fontSize: Style.bar.iconFont
           foreground: root.bar.barForeground
-          fixedWidth: Style.space(26)
+          fixedWidth: Style.bar.iconSlot
           fixedHeight: root.barSize
           tooltipText: "Next"
           onPressed: function(mouseButton) {
