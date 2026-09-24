@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
+import QtQuick.Effects
 import qs.Ui
 import qs.Commons
 
@@ -389,6 +390,25 @@ BarWidget {
       // prevent that: a hard clip, a width that can never go negative or zero,
       // scrolling only when the text genuinely overflows, and x reset to 0
       // whenever it stops — so a partial frame can't be left parked on screen.
+      // The gradient the marquee is masked through. Not drawn itself — it is
+      // here only to be a texture. White is opaque, transparent is cut away.
+      Item {
+        id: marqueeFade
+        anchors.fill: marquee
+        visible: false
+        layer.enabled: true
+        Rectangle {
+          anchors.fill: parent
+          gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0.0; color: "#00ffffff" }
+            GradientStop { position: 0.06; color: "#ffffffff" }
+            GradientStop { position: 0.92; color: "#ffffffff" }
+            GradientStop { position: 1.0; color: "#00ffffff" }
+          }
+        }
+      }
+
       Item {
         id: marquee
         anchors.left: parent.left
@@ -396,7 +416,16 @@ BarWidget {
         Behavior on opacity { NumberAnimation { duration: 120 } }
         anchors.verticalCenter: parent.verticalCenter
         visible: !root.bar.vertical
+        // The clip stays: it is the hard guarantee against a stray glyph
+        // parked outside the slot. The fade is layered over it so the text
+        // dissolves at the edges instead of being guillotined mid-letter —
+        // only worth paying for while it actually scrolls.
         clip: true
+        layer.enabled: marquee.overflowing
+        layer.effect: MultiEffect {
+          maskEnabled: true
+          maskSource: marqueeFade
+        }
         height: titleA.implicitHeight
         width: Math.max(0, Math.min(root.maxLabelWidth, titleA.implicitWidth))
 
@@ -405,10 +434,17 @@ BarWidget {
         // Idle is now said by the note alone — the slot has collapsed to
         // nothing by this point, so there is nowhere to print "Nothing
         // playing" and no need to: an empty bar widget is the message.
+        //
+        // Title only, no artist. On YouTube the "artist" is the channel and
+        // the title usually already carries the artist, so asking for both
+        // printed the same fact twice — "LatinHype - Tame Impala - Loser" —
+        // and guaranteed the text could never fit, which is what made the
+        // marquee scroll constantly. The channel is still one hover away in
+        // the tooltip, and spelled out in the panel.
         readonly property string fullText: root.lastError !== ""
           ? root.lastError
           : (root.hasTrack
-            ? Api.barTrackText(root.title, root.artist, true, true)
+            ? Api.barTrackText(root.title, root.artist, true, false)
             : "")
         readonly property real gapPx: Style.space(28)
         readonly property bool overflowing: titleA.implicitWidth > width + 1
