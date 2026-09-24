@@ -364,22 +364,10 @@ BarWidget {
             if (mouseButton === Qt.LeftButton && root.ytService) root.ytService.next()
           }
         }
-        WidgetButton {
-          id: playerButton
-          bar: root.bar
-          // Points the way the player actually goes: down out of a top bar
-          // when closed, back up when it is open. A chevron that always
-          // pointed up was aiming away from the panel it opens.
-          text: root.popupOpen ? "\u{f0143}" : "\u{f0140}"
-          fontSize: Style.font.icon
-          foreground: root.bar.barForeground
-          fixedWidth: Style.space(26)
-          fixedHeight: root.barSize
-          tooltipText: root.popupOpen ? "Close the player" : "Open the player"
-          onPressed: function(mouseButton) {
-            if (mouseButton === Qt.LeftButton) root.popupOpen = !root.popupOpen
-          }
-        }
+        // The chevron that used to sit here opened the player — but so does
+        // the note, which is permanent and always in the same place. Two
+        // controls for one action, one of them only reachable on hover.
+        // The note keeps the job.
       }
 
       // Scrolling title. Two copies separated by a gap, scrolled by exactly
@@ -911,10 +899,22 @@ BarWidget {
 
     BorderSurface {
       id: card
+      // Clear the bar instead of covering it.
+      //
+      // This surface sits on the Overlay layer, above the bar's Top layer,
+      // and spans the whole output — so anchoring the card to the screen
+      // edge parked it on top of the bar, hiding the tray and status icons
+      // behind it. Every other panel opens clear of the bar, and this one
+      // looked wrong next to them for exactly that reason.
+      //
+      // The card lives in the top-right, so only a top bar or a right-hand
+      // bar is ever in its way; a bottom or left bar needs no clearance.
+      readonly property string barPos: root.bar ? root.bar.position : "top"
+      readonly property int barThickness: root.bar ? root.bar.barSize : 0
       anchors.top: parent.top
       anchors.right: parent.right
-      anchors.topMargin: Style.gapsOut
-      anchors.rightMargin: Style.gapsOut
+      anchors.topMargin: (barPos === "top" ? barThickness : 0) + Style.gapsOut
+      anchors.rightMargin: (barPos === "right" ? barThickness : 0) + Style.gapsOut
       width: Style.space(320)
       height: column.implicitHeight + contentTopInset + contentBottomInset
       radius: Style.cornerRadius
