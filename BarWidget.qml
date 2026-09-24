@@ -35,16 +35,35 @@ BarWidget {
   // happened while the panel was closed was invisible: the chip went on
   // reading "Nothing playing" as though nothing had gone wrong.
   readonly property string lastError: ytService ? String(ytService.lastError || "") : ""
-  // Tighter than before so the chip stays compact now that the waveform
-  // shares the row; still overridable per-widget via the maxWidth setting.
-  // Kept close to the width of the hover controls (128) on purpose. The
-  // chip swaps the title for those controls, and any surplus shows up as a
-  // hole in the bar for as long as you hover it — there is no border any more
-  // to contain it. Too small is just as bad: the controls then cover the chip
-  // completely and there is nowhere left to click to open the player, which
-  // is why that has its own button rather than relying on bare chip. The title is a marquee, so a narrow window still reads;
-  // it just scrolls sooner.
-  readonly property real maxLabelWidth: Style.space(Math.max(60, Number(root.setting("maxWidth", 128)) || 128))
+  // Three states, and what each one shows:
+  //
+  //   no track            the note, alone — it is the way into the player
+  //   paused, or hovered  the note and the transport controls
+  //   playing, at rest    the scrolling title, and nothing else
+  //
+  // Paused counts as "show me the controls" because a paused track is one you
+  // are about to do something to; a playing one you only want to read.
+  readonly property bool paused: hasTrack && !playing
+  readonly property bool showControls: hasTrack && (pillHover.hovered || paused)
+  readonly property bool showNote: !hasTrack || showControls
+  readonly property bool showTitle: hasTrack && !showControls
+
+  // The chip holds one width for as long as a track is loaded, whatever it is
+  // showing, so it never resizes under the pointer and never shoves the bar
+  // icons beside it. That works out exactly rather than by padding: hiding the
+  // note frees precisely the room the title needs.
+  //
+  //   note + gap + controls  = 26 + 4 + 94 = 124
+  //   title alone, no note   =              124
+  //
+  // Only losing the track shrinks it, down to the bare note.
+  readonly property real noteSpan: Style.space(26) + Style.space(4)
+  readonly property real controlsSpan: 3 * Style.space(26) + 2 * Style.space(8)
+  readonly property real trackSpan: noteSpan + controlsSpan
+  // The setting still widens the title, but it widens the locked width with
+  // it, so the chip stays the same size in every state either way.
+  readonly property real maxLabelWidth: Math.max(trackSpan,
+    Style.space(Math.max(60, Number(root.setting("maxWidth", 0)) || 0)))
   readonly property string playIcon: playing ? "\u{f03e4}" : "\u{f040a}"
   // Plain ASCII, not a nerd-font codepoint: guaranteed to render in any font,
   // no tofu risk. The art placeholder in the popup, where a tofu box would sit
@@ -263,12 +282,13 @@ BarWidget {
     // own space over. The slot is sized to whichever of the two is wider, so
     // the pill does not resize as you move onto it and shove the icons beside
     // it around.
-    // The widget's anchor. Everything else here is conditional — the controls
-    // only exist on hover, the title only at rest — so without this the chip
-    // had nothing permanent in it and collapsing the title would have left
-    // nothing to see or click at all.
+    // The way into the player, and the whole widget when nothing is loaded.
+    // It steps aside while a track is actually playing: the title is the only
+    // thing worth the space then, and the note reappears the moment you hover
+    // or pause, which is when you want something to press.
     WidgetButton {
       id: noteButton
+      visible: root.showNote
       bar: root.bar
       text: root.musicGlyph
       fontSize: Style.font.icon
@@ -288,30 +308,17 @@ BarWidget {
     Item {
       id: mediaSlot
       anchors.verticalCenter: parent.verticalCenter
-      // Collapses to nothing when there is no track and nothing has gone
-      // wrong, leaving just the note in the bar.
+      // Whatever the chip is showing, the total stays root.maxLabelWidth: the
+      // slot gives back exactly the room the note takes when the note is
+      // there, and claims it when the note steps aside. So the widget holds
+      // one width for as long as a track is loaded, and the bar icons beside
+      // it never move while you use it.
       //
-      // `pillHover.hovered` stays in the condition on purpose: the slot is
-      // sized to whichever of the title/controls is wider precisely so the
-      // pill does not resize under the cursor and shove the bar icons beside
-      // it around. Dropping it here would bring that back on every hover.
-      // Expanding when a track starts is a far rarer event, and deliberate.
+      // With no track there is nothing to show but the note, and the slot
+      // closes entirely — the one size change left, and the one worth seeing.
       readonly property bool expanded: root.hasTrack || root.lastError !== ""
-                                       || pillHover.hovered
-      // Take exactly the width of whatever is actually being shown: the title
-      // at rest, the buttons on hover. Nothing else.
-      //
-      // The slot used to hold the wider of the two at all times so the chip
-      // could not change size under the pointer and shift the bar icons
-      // beside it. The cost was an empty gap wherever the title was wider
-      // than the buttons — which is nearly always. Trading the gap for the
-      // shift is a deliberate choice: the gap is there the whole time you
-      // hover, the shift only happens as you arrive and leave, and the width
-      // Behavior below carries it rather than snapping.
-      readonly property real controlsNaturalWidth: 3 * Style.space(26)
-                                                   + 2 * Style.space(8)
       width: expanded
-        ? (pillHover.hovered ? controlsNaturalWidth : marquee.width)
+        ? root.maxLabelWidth - (root.showNote ? root.noteSpan : 0)
         : 0
       height: root.barSize
       // Without this the transport buttons spill out of the slot while it is
@@ -330,8 +337,8 @@ BarWidget {
         anchors.left: parent.left
         anchors.verticalCenter: parent.verticalCenter
         spacing: Style.space(8)
-        enabled: pillHover.hovered
-        opacity: pillHover.hovered ? 1 : 0
+        enabled: root.showControls
+        opacity: root.showControls ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
 
         WidgetButton {
@@ -414,7 +421,7 @@ BarWidget {
       Item {
         id: marquee
         anchors.left: parent.left
-        opacity: pillHover.hovered ? 0 : 1
+        opacity: root.showTitle ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
         anchors.verticalCenter: parent.verticalCenter
         visible: !root.bar.vertical
