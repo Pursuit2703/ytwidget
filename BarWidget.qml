@@ -30,6 +30,10 @@ BarWidget {
     (ytService.videoActive ? ytService.videoPlaying : ytService.playing))
   readonly property string title: ytService ? ytService.trackTitle : ""
   readonly property string artist: ytService ? ytService.trackArtist : ""
+  // The panel has always surfaced this, the bar never did — so a failure that
+  // happened while the panel was closed was invisible: the chip went on
+  // reading "Nothing playing" as though nothing had gone wrong.
+  readonly property string lastError: ytService ? String(ytService.lastError || "") : ""
   // Tighter than before so the chip stays compact now that the waveform
   // shares the row; still overridable per-widget via the maxWidth setting.
   // Kept close to the width of the hover controls (128) on purpose. The
@@ -292,7 +296,12 @@ BarWidget {
           foreground: root.bar.barForeground
           fixedWidth: Style.space(26)
           fixedHeight: root.barSize
-          tooltipText: root.hasTrack ? (root.playing ? "Pause" : "Play") : "Nothing playing"
+          // Hovering the chip fades the marquee out and swaps these controls
+          // in, so the error text disappears at the exact moment you lean in
+          // to read it. The tooltip is where it has to survive.
+          tooltipText: root.lastError !== ""
+            ? root.lastError
+            : (root.hasTrack ? (root.playing ? "Pause" : "Play") : "Nothing playing")
           onPressed: function(mouseButton) {
             if (mouseButton === Qt.LeftButton && root.ytService) root.ytService.togglePlayback()
           }
@@ -347,9 +356,13 @@ BarWidget {
         height: titleA.implicitHeight
         width: Math.max(0, Math.min(root.maxLabelWidth, titleA.implicitWidth))
 
-        readonly property string fullText: root.hasTrack
-          ? Api.barTrackText(root.title, root.artist, true, true)
-          : "Nothing playing"
+        // An error outranks the track: it is the one thing here you cannot
+        // act on from the bar, and it is why the title is stale or missing.
+        readonly property string fullText: root.lastError !== ""
+          ? root.lastError
+          : (root.hasTrack
+            ? Api.barTrackText(root.title, root.artist, true, true)
+            : "Nothing playing")
         readonly property real gapPx: Style.space(28)
         readonly property bool overflowing: titleA.implicitWidth > width + 1
 
@@ -361,8 +374,10 @@ BarWidget {
             id: titleA
             textFormat: Text.PlainText
             text: marquee.fullText
-            color: root.hasTrack && root.playing
-              ? root.bar.barForeground : Qt.darker(root.bar.barForeground, 1.5)
+            color: root.lastError !== ""
+              ? Color.urgent
+              : (root.hasTrack && root.playing
+                ? root.bar.barForeground : Qt.darker(root.bar.barForeground, 1.5))
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.body
           }
@@ -1261,10 +1276,16 @@ BarWidget {
         width: parent.width
         Text {
           Layout.fillWidth: true
-          text: root.ytService && root.ytService.backendReady ? "" : "Starting up…"
-          color: Qt.darker(root.bar.foreground, 1.5)
+          // Same order as the bar chip: the error wins, because "Starting up…"
+          // next to a backend that has already failed reads as a hang.
+          text: root.lastError !== ""
+            ? root.lastError
+            : (root.ytService && root.ytService.backendReady ? "" : "Starting up…")
+          color: root.lastError !== "" ? Color.urgent : Qt.darker(root.bar.foreground, 1.5)
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+          wrapMode: Text.NoWrap
         }
         Button {
           text: "Full player"
