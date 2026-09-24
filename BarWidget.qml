@@ -46,8 +46,14 @@ BarWidget {
   readonly property real maxLabelWidth: Style.space(Math.max(60, Number(root.setting("maxWidth", 128)) || 128))
   readonly property string playIcon: playing ? "\u{f03e4}" : "\u{f040a}"
   // Plain ASCII, not a nerd-font codepoint: guaranteed to render in any font,
-  // no tofu risk. Used both as the idle glyph and the art placeholder.
+  // no tofu risk. The art placeholder in the popup, where a tofu box would sit
+  // large and obvious in the middle of the card.
   readonly property string idleGlyph: "YT"
+  // The bar's own resting mark. A note says "music" at a glance where "YT"
+  // only says "YouTube", and it holds the widget's place while the title is
+  // collapsed. Same codepoint the play button and the panel already use, so
+  // it carries no new font risk in the bar.
+  readonly property string musicGlyph: "󰝚"
 
   // Ambient full-bar spectrum. Off by default: it paints across the whole
   // screen width, which is a bigger change to someone's desktop than a bar
@@ -256,11 +262,49 @@ BarWidget {
     // own space over. The slot is sized to whichever of the two is wider, so
     // the pill does not resize as you move onto it and shove the icons beside
     // it around.
+    // The widget's anchor. Everything else here is conditional — the controls
+    // only exist on hover, the title only at rest — so without this the chip
+    // had nothing permanent in it and collapsing the title would have left
+    // nothing to see or click at all.
+    WidgetButton {
+      id: noteButton
+      bar: root.bar
+      text: root.musicGlyph
+      fontSize: Style.font.icon
+      foreground: root.lastError !== "" ? Color.urgent : root.bar.barForeground
+      fixedWidth: Style.space(26)
+      fixedHeight: root.barSize
+      tooltipText: root.lastError !== ""
+        ? root.lastError
+        : (root.hasTrack
+          ? Api.barTrackText(root.title, root.artist, true, true)
+          : "Nothing playing")
+      onPressed: function(mouseButton) {
+        if (mouseButton === Qt.LeftButton) root.popupOpen = !root.popupOpen
+      }
+    }
+
     Item {
       id: mediaSlot
       anchors.verticalCenter: parent.verticalCenter
-      width: Math.max(controlsRow.width, marquee.width)
+      // Collapses to nothing when there is no track and nothing has gone
+      // wrong, leaving just the note in the bar.
+      //
+      // `pillHover.hovered` stays in the condition on purpose: the slot is
+      // sized to whichever of the title/controls is wider precisely so the
+      // pill does not resize under the cursor and shove the bar icons beside
+      // it around. Dropping it here would bring that back on every hover.
+      // Expanding when a track starts is a far rarer event, and deliberate.
+      readonly property bool expanded: root.hasTrack || root.lastError !== ""
+                                       || pillHover.hovered
+      width: expanded ? Math.max(controlsRow.width, marquee.width) : 0
       height: root.barSize
+      // Without this the transport buttons spill out of the slot while it is
+      // still animating shut.
+      clip: true
+      Behavior on width {
+        NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+      }
 
       // Left-aligned, not centred: the title starts at this edge too, so the
       // swap happens in place rather than collapsing into the middle. What is
@@ -358,11 +402,14 @@ BarWidget {
 
         // An error outranks the track: it is the one thing here you cannot
         // act on from the bar, and it is why the title is stale or missing.
+        // Idle is now said by the note alone — the slot has collapsed to
+        // nothing by this point, so there is nowhere to print "Nothing
+        // playing" and no need to: an empty bar widget is the message.
         readonly property string fullText: root.lastError !== ""
           ? root.lastError
           : (root.hasTrack
             ? Api.barTrackText(root.title, root.artist, true, true)
-            : "Nothing playing")
+            : "")
         readonly property real gapPx: Style.space(28)
         readonly property bool overflowing: titleA.implicitWidth > width + 1
 
@@ -391,15 +438,26 @@ BarWidget {
           }
         }
 
-        NumberAnimation {
+        // Still a loop — reading the whole title is the point of the thing —
+        // but it now rests at the start of each pass instead of wrapping
+        // straight back into motion. The old version never stood still, which
+        // is what made it tiring to sit beside; this gives you a beat to read
+        // the opening words, which is the part that identifies the track.
+        SequentialAnimation {
           id: scrollAnim
-          target: ticker
-          property: "x"
           running: marquee.overflowing && marquee.visible
           loops: Animation.Infinite
-          from: 0
-          to: -(titleA.implicitWidth + marquee.gapPx)
-          duration: Math.max(4000, (titleA.implicitWidth + marquee.gapPx) * 22)
+          PauseAnimation { duration: 2200 }
+          NumberAnimation {
+            target: ticker
+            property: "x"
+            from: 0
+            to: -(titleA.implicitWidth + marquee.gapPx)
+            duration: Math.max(4000, (titleA.implicitWidth + marquee.gapPx) * 22)
+          }
+          // Back to the start before the next rest, so the pause is always
+          // spent showing the beginning of the title rather than the end.
+          ScriptAction { script: ticker.x = 0 }
           onRunningChanged: if (!running) ticker.x = 0
         }
       }
