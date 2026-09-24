@@ -298,12 +298,21 @@ BarWidget {
       // Expanding when a track starts is a far rarer event, and deliberate.
       readonly property bool expanded: root.hasTrack || root.lastError !== ""
                                        || pillHover.hovered
-      // Worked out from the button geometry rather than read off controlsRow,
-      // which now sizes its own spacing from this width — reading it back
-      // would be a binding loop.
+      // Take exactly the width of whatever is actually being shown: the title
+      // at rest, the buttons on hover. Nothing else.
+      //
+      // The slot used to hold the wider of the two at all times so the chip
+      // could not change size under the pointer and shift the bar icons
+      // beside it. The cost was an empty gap wherever the title was wider
+      // than the buttons — which is nearly always. Trading the gap for the
+      // shift is a deliberate choice: the gap is there the whole time you
+      // hover, the shift only happens as you arrive and leave, and the width
+      // Behavior below carries it rather than snapping.
       readonly property real controlsNaturalWidth: 3 * Style.space(26)
                                                    + 2 * Style.space(8)
-      width: expanded ? Math.max(controlsNaturalWidth, marquee.width) : 0
+      width: expanded
+        ? (pillHover.hovered ? controlsNaturalWidth : marquee.width)
+        : 0
       height: root.barSize
       // Without this the transport buttons spill out of the slot while it is
       // still animating shut.
@@ -320,20 +329,7 @@ BarWidget {
         id: controlsRow
         anchors.left: parent.left
         anchors.verticalCenter: parent.verticalCenter
-        // Spread to fill the slot rather than huddling against its left edge.
-        //
-        // The slot is sized to the title, which is normally wider than the
-        // buttons, so the surplus sat at the right as an empty gap in the bar
-        // for as long as you hovered. That gap used to be zero because the
-        // four buttons happened to total exactly the 128 the title slot
-        // defaults to; losing one button broke the coincidence and opened it
-        // up. Filling the slot is immune to that — the buttons re-space
-        // themselves for any slot width or button count.
-        //
-        // The alternative, shrinking the slot on hover, is the thing the slot
-        // was built to avoid: it shoves every bar icon beside it.
-        spacing: Math.max(Style.space(8),
-          (mediaSlot.width - 3 * Style.space(26)) / 2)
+        spacing: Style.space(8)
         enabled: pillHover.hovered
         opacity: pillHover.hovered ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
