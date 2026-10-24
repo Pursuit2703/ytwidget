@@ -55,6 +55,12 @@ def resolve_timeout(warm: bool) -> int:
     return RESOLVE_TIMEOUT_WARM if warm else RESOLVE_TIMEOUT_COLD
 
 
+NETWORK_ERROR_SIGNS = ("[ssl", "ssl:", "eof occurred", "timed out", "connection reset",
+                       "connection refused", "network is unreachable",
+                       "name or service not known", "temporary failure in name resolution",
+                       "unable to download api page")
+
+
 def playback_error_message(detail: str) -> str:
     text = str(detail or "").strip()
     lower = text.lower()
@@ -73,6 +79,10 @@ def playback_error_message(detail: str) -> str:
         return "That video is private."
     if "video unavailable" in lower:
         return "That video is unavailable."
+    # Network failures (seen as "[SSL: UNEXPECTED_EOF_WHILE_READING]" while a
+    # system VPN was switching) are spoken by Hazel, so never pass them raw.
+    if any(sign in lower for sign in NETWORK_ERROR_SIGNS):
+        return "Could not reach YouTube. Check the connection and try again."
     if not text:
         return "Could not resolve audio stream"
     line = text.splitlines()[-1].strip()
