@@ -230,6 +230,9 @@ BarWidget {
     ytService.setVideoDefaults(isFinite(q) ? Math.max(144, Math.min(2160, q)) : 1080,
                                Math.max(20, Math.min(100, Number(root.setting("videoWindowPercent", 70)) || 70)),
                                String(root.setting("videoGpu", "integrated") || "integrated"))
+    var vpnMode = String(root.setting("vpnMode", "fallback") || "fallback")
+    if (["off", "fallback", "always"].indexOf(vpnMode) >= 0 && typeof ytService.setVpnMode === "function")
+      ytService.setVpnMode(vpnMode)
   }
 
   Connections {

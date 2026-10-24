@@ -138,6 +138,7 @@ Item {
     send("set_video_defaults", { height: height, window_percent: windowPercent, gpu: gpu || "" })
   }
   function setIdleMinutes(minutes) { send("set_idle_minutes", { minutes: minutes }) }
+  function setVpnMode(mode) { send("set_vpn_mode", { mode: mode }) }
   function setShuffle(value) { send("set_shuffle", { shuffle: value }) }
   function cycleRepeat() { send("cycle_repeat", {}) }
   function setEqBand(index, gain) { send("set_eq_band", { index: index, gain: gain }) }

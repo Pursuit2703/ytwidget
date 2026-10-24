@@ -38,6 +38,7 @@
       "videoQuality": 1080,
       "videoWindowPercent": 70,
       "videoGpu": "integrated",
+      "vpnMode": "fallback",
       "ambientWave": false,
       "ambientOpacity": 55,
       "ambientHeight": 62
@@ -116,6 +117,13 @@
         "label": "Video GPU",
         "defaultValue": "integrated",
         "description": "\"integrated\" pins the video window to the built-in GPU, which starts faster and more consistently and leaves a discrete card asleep. Use \"default\" to let mpv choose (it prefers the discrete GPU)."
+      },
+      {
+        "key": "vpnMode",
+        "type": "string",
+        "label": "YouTube over VPN",
+        "defaultValue": "fallback",
+        "description": "\"fallback\" uses a Proton server (configs in ~/.config/ytwidget/vpn/, through wireproxy) only when YouTube blocks the home connection. \"always\" sends all YouTube traffic through it and never falls back to the home IP. \"off\" never uses it. Only YouTube traffic is routed; the rest of the system is untouched."
       },
       {
         "key": "ambientWave",

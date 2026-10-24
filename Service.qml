@@ -80,6 +80,7 @@ Item {
   function prepareVideo(videoId) { conn.prepareVideo(videoId) }
   function setVideoDefaults(height, windowPercent, gpu) { conn.setVideoDefaults(height, windowPercent, gpu) }
   function setIdleMinutes(minutes) { conn.setIdleMinutes(minutes) }
+  function setVpnMode(mode) { conn.setVpnMode(mode) }
   function setShuffle(value) { conn.setShuffle(value) }
   function cycleRepeat() { conn.cycleRepeat() }
   function setEqBand(index, gain) { conn.setEqBand(index, gain) }
