@@ -139,9 +139,15 @@ Item {
       onConnectionStateChanged: {
         if (!connected) root.lifecycle = ""
       }
+      // Never change `connected` inside the error signal itself: Quickshell
+      // 0.3.2 tears its QLocalSocket down from that write while it is still
+      // emitting, then touches the null pointer and segfaults the whole shell
+      // ("QObject::disconnect: Unexpected nullptr parameter"). This happened
+      // on every backend restart. Defer it to the next event-loop turn.
       onError: function() {
-        connected = false
         root.lifecycle = ""
+        var dead = socket
+        Qt.callLater(function() { if (dead) dead.connected = false })
       }
     }
   }
