@@ -522,7 +522,12 @@ class VideoWindow:
                 )
             else:
                 # Cold: fall back to mpv's own ytdl_hook, which costs the
-                # extraction up front but always works.
+                # extraction up front but always works. That extraction is a
+                # YouTube request the gate cannot wrap, so check and count it.
+                gate = yt_gate.status()
+                if gate["blocked"]:
+                    raise VideoError(yt_gate._message(gate["seconds_left"]))
+                yt_gate.note_external("video_cold", video_id)
                 command = command_line(
                     binary, watch_url(video_id), self.ipc_path,
                     title=self.title, start_ms=start_ms,

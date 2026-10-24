@@ -138,6 +138,12 @@ def _reserve_slot() -> float:
         return start - now
 
 
+def note_external(kind: str, video_id: str = "") -> None:
+    """Count a YouTube request made outside run() (mpv's own ytdl_hook)."""
+    _reserve_slot()
+    log_request(kind, video_id, True, 0, "external")
+
+
 def run(command: list[str], timeout: int, kind: str = "request",
         video_id: str = "") -> subprocess.CompletedProcess:
     """Run a yt-dlp command through the gate. Raises Blocked, or
