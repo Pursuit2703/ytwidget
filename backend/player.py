@@ -19,7 +19,9 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+import audio_cache
 from play_history import video_id as item_video_id
+from request_log import log_request
 from spectrum import SpectrumTap
 
 
@@ -396,16 +398,21 @@ class StreamResolver:
         # done, and (if it failed) the error text to hand to anyone waiting.
         self._inflight: dict[str, threading.Event] = {}
         self._inflight_error: dict[str, str] = {}
+        self.cache_filler = audio_cache.Filler()
 
     def set_quality(self, kbps: int) -> None:
         self.kbps = kbps
         with self._lock:
             self._cache.clear()
 
-    def resolve(self, video_id: str) -> str:
+    def resolve(self, video_id: str, kind: str = "resolve") -> str:
         video_id = str(video_id or "").strip()
         if not video_id:
             raise PlayerError("Missing video id")
+        # A saved copy plays straight from disk: no request to YouTube at all.
+        local = audio_cache.lookup(video_id)
+        if local is not None:
+            return str(local)
         while True:
             now = time.time()
             with self._lock:
@@ -425,7 +432,7 @@ class StreamResolver:
                     owner = False
             if owner:
                 try:
-                    url = self._yt_dlp(video_id)
+                    url = self._yt_dlp(video_id, kind)
                 except Exception as exc:
                     with self._lock:
                         self._inflight_error[video_id] = str(exc)
@@ -437,6 +444,7 @@ class StreamResolver:
                     self._inflight_error.pop(video_id, None)
                     self._inflight.pop(video_id, None)
                 event.set()
+                self.cache_filler.schedule(video_id, url)
                 return url
             # Someone else is already resolving this exact video. Wait for
             # their outcome (bounded by the same worst-case timeout their own
@@ -458,12 +466,22 @@ class StreamResolver:
     def prefetch(self, video_id: str) -> None:
         def worker() -> None:
             try:
-                self.resolve(video_id)
+                self.resolve(video_id, kind="prefetch")
             except Exception:
                 pass
         threading.Thread(target=worker, daemon=True).start()
 
-    def _yt_dlp(self, video_id: str) -> str:
+    def _yt_dlp(self, video_id: str, kind: str = "resolve") -> str:
+        started = time.time()
+        try:
+            url = self._run_yt_dlp(video_id)
+        except Exception as exc:
+            log_request(kind, video_id, False, int((time.time() - started) * 1000), str(exc))
+            raise
+        log_request(kind, video_id, True, int((time.time() - started) * 1000))
+        return url
+
+    def _run_yt_dlp(self, video_id: str) -> str:
         binary = shutil.which("yt-dlp")
         if not binary:
             raise PlayerError("yt-dlp is not installed")

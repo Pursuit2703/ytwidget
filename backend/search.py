@@ -33,6 +33,8 @@ import threading
 import time
 from typing import Any
 
+from request_log import log_request
+
 WATCH_BASE = "https://www.youtube.com/watch?v="
 
 INNERTUBE_HOST = "www.youtube.com"
@@ -303,12 +305,14 @@ def search(query: str, limit: int = 20) -> list[dict[str, Any]]:
     limit = max(1, min(int(limit or 20), 50))
 
     if _fast_path_suspended():
+        log_request("search", "", True, 0, "yt-dlp")
         return ytdlp_search(query, limit)
 
     try:
         items = innertube_search(query, limit)
         if items:
             _note_fast_success()
+            log_request("search", "", True, 0, "innertube")
             return items
         reason = "no results parsed"
     except Exception as exc:  # noqa: BLE001 - any failure just means fall back
@@ -317,8 +321,10 @@ def search(query: str, limit: int = 20) -> list[dict[str, Any]]:
     # Either YouTube changed something under us or it refused the request.
     # yt-dlp tracks those changes upstream, so the slow path still works.
     _note_fast_failure()
+    log_request("search", "", False, 0, "innertube: " + reason)
     suffix = ("; pausing fast path for %d min" % (_COOLDOWN_SECONDS / 60)
               if _fast_path_suspended() else "")
     print(f"ytwidget: InnerTube search unavailable ({reason}); using yt-dlp{suffix}",
           file=sys.stderr, flush=True)
+    log_request("search", "", True, 0, "yt-dlp")
     return ytdlp_search(query, limit)
