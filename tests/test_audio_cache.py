@@ -48,6 +48,15 @@ class AudioCacheTest(unittest.TestCase):
         self.assertFalse(old.exists())
         self.assertTrue(new.exists())
 
+    def test_stale_part_files_are_removed(self):
+        stale, fresh = self.dir / "a.webm.part", self.dir / "b.webm.part"
+        stale.write_bytes(b"x")
+        fresh.write_bytes(b"x")
+        os.utime(stale, (1, 1))
+        audio_cache.evict(self.dir, 10 ** 9)
+        self.assertFalse(stale.exists())
+        self.assertTrue(fresh.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

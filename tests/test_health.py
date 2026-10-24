@@ -68,6 +68,12 @@ class HealthTest(unittest.TestCase):
         self.assertEqual(info["pass_rate"], 0.95)
         self.assertTrue(info["proven"])
 
+    def test_bad_log_lines_are_skipped(self):
+        path = health.log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('[1,2]\n{"ts": "x"}\nnot json\n{"ts": %f, "ok": true}\n' % time.time())
+        self.assertEqual(health.summary()["runs"], 1)
+
     def test_summary_not_proven_with_few_runs(self):
         self.assertFalse(health.summary()["proven"])
 

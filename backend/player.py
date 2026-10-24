@@ -62,7 +62,7 @@ def playback_error_message(detail: str) -> str:
     # would otherwise match that generic check and blame the account/video,
     # when the real, verified (via -v) underlying cause is an HTTP 429 from
     # YouTube rate-limiting the request volume, not anything sign-in related.
-    if "429" in lower or "too many requests" in lower or "not a bot" in lower:
+    if "http error 429" in lower or "too many requests" in lower or "not a bot" in lower:
         return "YouTube is rate-limiting requests right now. Try again in a bit."
     if "403" in lower or "forbidden" in lower:
         return "YouTube refused that stream. Try it again."

@@ -15,6 +15,7 @@ from the Firefox profile's cookies.sqlite by yt-dlp; no browser is started.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import random
@@ -22,11 +23,17 @@ import re
 import subprocess
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from request_log import log_request
 
-BLOCK_RE = re.compile(r"429|too many requests|not a bot|confirm you.re not", re.I)
+# Not a bare "429": that also matches video ids and timings in stderr.
+BLOCK_RE = re.compile(r"HTTP Error 429|too many requests|not a bot|confirm you.re not", re.I)
+COOKIE_ERROR_RE = re.compile(r"cookie", re.I)
+# Optional work never waits longer than this for its slot.
+MAX_OPTIONAL_WAIT = 5.0
+OPTIONAL_KINDS = {"prefetch"}
 MIN_GAP = (1.5, 3.0)
 HOURLY_CAP = 90
 COOKIE_HOLD_SECONDS = 3600
@@ -62,11 +69,34 @@ def _save(state: dict) -> None:
     path = _state_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps(state), encoding="utf-8")
         os.replace(tmp, path)
     except OSError:
         pass
+
+
+@contextmanager
+def _transaction():
+    """Read-modify-write gate.json under a thread lock and a cross-process
+    flock, so the backend, Hazel and the self-test never undo each other."""
+    path = _state_path()
+    with _lock:
+        handle = None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            handle = open(path.with_suffix(".lock"), "a")
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        except OSError:
+            pass
+        try:
+            state = _load()
+            yield state
+            _save(state)
+        finally:
+            if handle is not None:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+                handle.close()
 
 
 def firefox_profile() -> str:
@@ -82,7 +112,13 @@ def firefox_profile() -> str:
             found += [p.parent for p in root.glob("*/cookies.sqlite")]
         except OSError:
             continue
-    found.sort(key=lambda p: ("default-release" not in p.name, -p.stat().st_mtime))
+    def key(p: Path) -> tuple:
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            mtime = 0
+        return ("default-release" not in p.name, -mtime)
+    found.sort(key=key)
     return str(found[0]) if found else ""
 
 
@@ -124,23 +160,36 @@ def healthy() -> bool:
     return not info["blocked"] and info["requests_last_hour"] < HOURLY_CAP // 2
 
 
-def _reserve_slot() -> float:
-    """Pick the earliest start time at least a random gap after the last one."""
-    with _lock:
-        state = _load()
+def _reserve_slot(max_wait: float | None = None) -> float | None:
+    """Pick the earliest start time at least a random gap after the last one.
+    Returns the wait, or None when it would exceed max_wait (nothing reserved)."""
+    with _transaction() as state:
         now = _now()
         start = max(now, state.get("last_start", 0) + random.uniform(*MIN_GAP))
+        if max_wait is not None and start - now > max_wait:
+            return None
         state["last_start"] = start
         recent = [t for t in state.get("recent", []) if now - t < 3600]
         recent.append(start)
         state["recent"] = recent
-        _save(state)
         return start - now
 
 
+def count(kind: str) -> None:
+    """Count a light request (InnerTube search) against the hourly budget
+    without spacing it; typing in the search box must stay instant."""
+    with _transaction() as state:
+        now = _now()
+        recent = [t for t in state.get("recent", []) if now - t < 3600]
+        recent.append(now)
+        state["recent"] = recent
+
+
 def note_external(kind: str, video_id: str = "") -> None:
-    """Count a YouTube request made outside run() (mpv's own ytdl_hook)."""
-    _reserve_slot()
+    """Count and space a YouTube request made outside run() (mpv's ytdl_hook)."""
+    wait = _reserve_slot()
+    if wait:
+        _sleep(wait)
     log_request(kind, video_id, True, 0, "external")
 
 
@@ -161,7 +210,9 @@ def run(command: list[str], timeout: int, kind: str = "request",
     command = _with_cookies(command, profile) if use_cookies else command
 
     def attempt(cmd: list[str]) -> subprocess.CompletedProcess:
-        wait = _reserve_slot()
+        wait = _reserve_slot(MAX_OPTIONAL_WAIT if kind in OPTIONAL_KINDS else None)
+        if wait is None:
+            raise Blocked("Busy; skipped optional request.")
         if wait > 0:
             _sleep(wait)
         started = _now()
@@ -177,29 +228,43 @@ def run(command: list[str], timeout: int, kind: str = "request",
         return result
 
     result = attempt(command)
+    if (use_cookies and result.returncode != 0 and not _blocked_text(result)
+            and COOKIE_ERROR_RE.search(result.stderr or "")):
+        # Cookies themselves broke (profile locked, decrypt failure): stop
+        # using them and try once more the plain way.
+        with _transaction() as state:
+            state["cookies_until"] = 0
+        use_cookies = False
+        command = [c for i, c in enumerate(command)
+                   if c != "--cookies-from-browser"
+                   and not (i > 0 and command[i - 1] == "--cookies-from-browser")]
+        result = attempt(command)
     if not _blocked_text(result):
         if result.returncode == 0:
-            state = _load()
-            if state.get("strikes"):
-                state["strikes"] = 0
-                _save(state)
+            with _transaction() as state:
+                if state.get("strikes"):
+                    state["strikes"] = 0
         return result
 
     if profile and not use_cookies:
         retry = attempt(_with_cookies(command, profile))
-        if not _blocked_text(retry):
-            state = _load()
-            state["cookies_until"] = _now() + COOKIE_HOLD_SECONDS
-            _save(state)
-            log_request("cookie_rescue", video_id, retry.returncode == 0, 0)
+        if retry.returncode == 0:
+            with _transaction() as state:
+                state["cookies_until"] = _now() + COOKIE_HOLD_SECONDS
+            log_request("cookie_rescue", video_id, True, 0)
             return retry
 
-    state = _load()
-    strikes = int(state.get("strikes", 0))
-    delay = BACKOFF_SECONDS[min(strikes, len(BACKOFF_SECONDS) - 1)]
-    state["strikes"] = strikes + 1
-    state["blocked_until"] = _now() + delay
-    state["cookies_until"] = 0
-    _save(state)
-    log_request("breaker_open", video_id, False, 0, f"{delay // 60} min")
+    with _transaction() as state:
+        now = _now()
+        if state.get("blocked_until", 0) > now:
+            # Another request already opened the breaker for this same block;
+            # one block event is one strike.
+            delay = state["blocked_until"] - now
+        else:
+            strikes = int(state.get("strikes", 0))
+            delay = BACKOFF_SECONDS[min(strikes, len(BACKOFF_SECONDS) - 1)]
+            state["strikes"] = strikes + 1
+            state["blocked_until"] = now + delay
+        state["cookies_until"] = 0
+    log_request("breaker_open", video_id, False, 0, f"{int(delay) // 60} min")
     raise Blocked(_message(delay))

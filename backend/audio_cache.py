@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -20,6 +21,7 @@ VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 MAX_TRACK_BYTES = 60 * 1024 * 1024
 DEFAULT_CAP_BYTES = 2 * 1024 ** 3
 CHUNK_BYTES = 1024 * 1024
+STALE_PART_SECONDS = 3600
 _EXTENSIONS = {"audio/webm": ".webm", "audio/mp4": ".m4a"}
 
 
@@ -61,6 +63,11 @@ def stream_info(url: str) -> tuple[int, str] | None:
 def evict(directory: Path, cap_bytes: int) -> None:
     """Delete least recently used files until the folder fits the cap."""
     try:
+        now = time.time()
+        for part in directory.glob("*.part"):
+            # Left behind by a backend killed mid-download.
+            if now - part.stat().st_mtime > STALE_PART_SECONDS:
+                part.unlink(missing_ok=True)
         files = [p for p in directory.iterdir() if p.is_file() and p.suffix != ".part"]
         total = sum(p.stat().st_size for p in files)
         for path in sorted(files, key=lambda p: p.stat().st_mtime):
@@ -74,10 +81,10 @@ def evict(directory: Path, cap_bytes: int) -> None:
 
 def _download(video_id: str, url: str, size: int, ext: str, directory: Path,
               cap_bytes: int) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
     final = directory / f"{video_id}{ext}"
     part = directory / f"{video_id}{ext}.part"
     try:
+        directory.mkdir(parents=True, exist_ok=True)
         with part.open("wb") as handle:
             offset = 0
             while offset < size:

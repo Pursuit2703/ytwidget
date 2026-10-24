@@ -25,6 +25,7 @@ from __future__ import annotations
 import gzip
 import http.client
 import json
+import os
 import re
 import shutil
 import ssl
@@ -321,15 +322,18 @@ def _cache_load() -> dict:
 
 def _cache_get(query: str, limit: int):
     entry = _cache_load().get(f"{limit}:{query.lower()}")
-    if entry and time.time() - entry.get("ts", 0) < SEARCH_CACHE_SECONDS:
-        return entry.get("items")
+    if (isinstance(entry, dict) and isinstance(entry.get("items"), list)
+            and isinstance(entry.get("ts"), (int, float))
+            and time.time() - entry["ts"] < SEARCH_CACHE_SECONDS):
+        return entry["items"]
     return None
 
 
 def _cache_put(query: str, limit: int, items: list) -> None:
     if not items:
         return
-    data = _cache_load()
+    data = {k: v for k, v in _cache_load().items()
+            if isinstance(v, dict) and isinstance(v.get("ts"), (int, float))}
     data[f"{limit}:{query.lower()}"] = {"ts": time.time(), "items": items}
     if len(data) > SEARCH_CACHE_MAX:
         for key in sorted(data, key=lambda k: data[k].get("ts", 0))[:len(data) - SEARCH_CACHE_MAX]:
@@ -337,7 +341,7 @@ def _cache_put(query: str, limit: int, items: list) -> None:
     try:
         path = _cache_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps(data), encoding="utf-8")
         tmp.replace(path)
     except OSError:
@@ -357,10 +361,13 @@ def saved_matches(query: str, limit: int) -> list[dict[str, Any]]:
         return []
     candidates: list[dict[str, Any]] = list(play_history.load())
     for entry in _cache_load().values():
-        candidates.extend(entry.get("items") or [])
+        if isinstance(entry, dict) and isinstance(entry.get("items"), list):
+            candidates.extend(entry["items"])
     seen: set[str] = set()
     found: list[dict[str, Any]] = []
     for item in candidates:
+        if not isinstance(item, dict):
+            continue
         vid = str(item.get("videoId") or "")
         if not vid or vid in seen or audio_cache.lookup(vid) is None:
             continue
@@ -401,6 +408,7 @@ def _search_uncached(query: str, limit: int) -> list[dict[str, Any]]:
         return ytdlp_search(query, limit)
 
     try:
+        yt_gate.count("search_innertube")
         items = innertube_search(query, limit)
         if items:
             _note_fast_success()

@@ -32,6 +32,12 @@ class SavedSearchTest(unittest.TestCase):
     def test_all_words_must_match(self):
         self.assertEqual(self.run_query("numb remix"), [])
 
+    def test_corrupt_cache_entries_are_ignored(self):
+        with mock.patch.object(play_history, "load", return_value=[]), \
+             mock.patch.object(search, "_cache_load", return_value={"a": "junk", "b": {"items": ["x", None]}}):
+            self.assertEqual(search.saved_matches("numb", 5), [])
+            self.assertIsNone(search._cache_get("numb", 5))
+
 
 if __name__ == "__main__":
     unittest.main()

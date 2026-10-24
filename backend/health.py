@@ -112,7 +112,9 @@ def _entries(days: float) -> list[dict]:
                 entry = json.loads(line)
             except ValueError:
                 continue
-            if entry.get("ts", 0) >= cutoff:
+            if not isinstance(entry, dict) or not isinstance(entry.get("ts"), (int, float)):
+                continue
+            if entry["ts"] >= cutoff:
                 out.append(entry)
     except OSError:
         pass

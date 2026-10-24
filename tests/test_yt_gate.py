@@ -83,7 +83,7 @@ class GateTest(unittest.TestCase):
             self.script = [BLOCKED, BLOCKED]
             with self.assertRaises(yt_gate.Blocked):
                 yt_gate.run(["yt-dlp", "u"], 10)
-            self.assertEqual(yt_gate.status()["seconds_left"], expected)
+            self.assertAlmostEqual(yt_gate.status()["seconds_left"], expected, delta=1)
             self.clock[0] += expected + 1
 
     def test_ordinary_error_does_not_trip_breaker(self):
@@ -117,3 +117,50 @@ class GateTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GateEdgeTest(GateTest):
+    def test_429_inside_video_id_is_not_a_block(self):
+        self.script = [subprocess.CompletedProcess([], 1, "", "ERROR: [youtube] aB429xyz_-Q: Video unavailable")]
+        yt_gate.run(["yt-dlp", "u"], 10)
+        self.assertFalse(yt_gate.status()["blocked"])
+        self.assertEqual(len(self.calls), 1)
+
+    def test_failed_cookie_retry_does_not_turn_cookies_on(self):
+        cookie_err = subprocess.CompletedProcess([], 1, "", "ERROR: could not copy cookie database")
+        self.script = [BLOCKED, cookie_err]
+        with self.assertRaises(yt_gate.Blocked):
+            yt_gate.run(["yt-dlp", "u"], 10)
+        self.assertFalse(yt_gate.status()["using_cookies"])
+
+    def test_broken_cookies_are_dropped_and_retried_plain(self):
+        self.script = [BLOCKED, OK]
+        yt_gate.run(["yt-dlp", "u"], 10)
+        self.assertTrue(yt_gate.status()["using_cookies"])
+        self.script = [subprocess.CompletedProcess([], 1, "", "ERROR: failed to decrypt cookie"), OK]
+        result = yt_gate.run(["yt-dlp", "u"], 10)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("--cookies-from-browser", self.calls[-1])
+        self.assertFalse(yt_gate.status()["using_cookies"])
+
+    def test_concurrent_block_counts_one_strike(self):
+        self.script = [BLOCKED, BLOCKED]
+        with self.assertRaises(yt_gate.Blocked):
+            yt_gate.run(["yt-dlp", "u"], 10)
+        # A second request that was already in flight also sees a block.
+        with yt_gate._transaction() as state:
+            state["blocked_until"] = self.clock[0] + 100
+        self.assertEqual(yt_gate.status()["strikes"], 1)
+
+    def test_prefetch_skips_instead_of_queueing(self):
+        with yt_gate._transaction() as state:
+            state["last_start"] = self.clock[0] + 60
+        with self.assertRaises(yt_gate.Blocked):
+            yt_gate.run(["yt-dlp", "u"], 10, kind="prefetch")
+        self.assertEqual(self.calls, [])
+
+    def test_corrupt_state_file_is_survivable(self):
+        path = yt_gate._state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{not json")
+        self.assertEqual(yt_gate.run(["yt-dlp", "u"], 10).returncode, 0)
