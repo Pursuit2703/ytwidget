@@ -122,7 +122,7 @@
         "type": "boolean",
         "label": "Spectrum across the bar",
         "defaultValue": false,
-        "description": "Draw the spectrum in the empty parts of the bar while something is playing. The music note in the widget's hover controls toggles it for the session; this is the state it starts in."
+        "description": "Draw the spectrum in the empty parts of the bar while something is playing. The waveform button in the widget's hover controls toggles it and remembers the choice."
       },
       {
         "key": "ambientOpacity",
