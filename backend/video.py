@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+import vpn
 import yt_gate
 
 DEFAULT_SUB_LANG = "en"
@@ -179,6 +180,8 @@ def direct_command_line(binary: str, resolved: dict, height: int, ipc_path: Path
     command = base_options(binary, ipc_path, title=title, volume=volume,
                            speed=speed, autofit_percent=autofit_percent, gpu=gpu)
     command.append("--ytdl=no")
+    if resolved.get("vpn"):
+        command.append(f"--http-proxy={vpn.PROXY_URL}")
     if stream.get("audio"):
         command.append(f"--audio-file={stream['audio']}")
     # Subtitles are deliberately NOT passed here. --sub-file makes mpv fetch
@@ -268,9 +271,9 @@ class VideoResolver:
     def cached(self, video_id: str) -> dict[str, Any] | None:
         with self._lock:
             entry = self._cache.get(str(video_id or ""))
-            if entry and entry[0] > time.time():
-                return entry[1]
-            return None
+        if entry and entry[0] > time.time() and vpn.current(entry[1].get("vpn")):
+            return entry[1]
+        return None
 
     def resolve(self, video_id: str) -> dict[str, Any]:
         video_id = str(video_id or "").strip()
@@ -333,7 +336,10 @@ class VideoResolver:
             info = json.loads(result.stdout)
         except json.JSONDecodeError as exc:
             raise VideoError("Could not read that video's details") from exc
-        return self._build(video_id, info)
+        built = self._build(video_id, info)
+        # Stream URLs from a VPN resolve only play through that same tunnel.
+        built["vpn"] = getattr(result, "vpn", None)
+        return built
 
     @staticmethod
     def _build(video_id: str, info: dict[str, Any]) -> dict[str, Any]:
@@ -535,6 +541,16 @@ class VideoWindow:
                     max_height=max_height, speed=self.speed,
                     autofit_percent=autofit_percent, gpu=self.gpu,
                 )
+                if yt_gate.routes_via_vpn():
+                    # mpv's own yt-dlp and its stream fetches both go through
+                    # the tunnel, so the URLs it resolves stay playable.
+                    try:
+                        vpn.ensure_up()
+                        command[1:1] = [f"--http-proxy={vpn.PROXY_URL}",
+                                        f"--ytdl-raw-options-append=proxy={vpn.PROXY_URL}"]
+                    except vpn.VpnError as exc:
+                        if vpn.mode() == "always":
+                            raise VideoError(str(exc)) from exc
             log_path = self.ipc_path.parent / "mpv-video.log"
             stderr = log_path.open("ab")
             try:

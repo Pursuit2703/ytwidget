@@ -22,6 +22,7 @@ import sys
 import time
 from pathlib import Path
 
+import vpn
 import yt_gate
 
 SELFTEST_VIDEO = "jNQXAC9IVRw"  # "Me at the zoo", 19 s, stable since 2005
@@ -34,8 +35,13 @@ def log_path() -> Path:
     return state / "ytwidget" / "health.jsonl"
 
 
-def vpn_up() -> bool:
-    return Path("/sys/class/net/proton0").exists()
+def vpn_info(check_ips: bool = False) -> dict:
+    """The YouTube-only VPN: mode, active server, unit, proxy, queue order.
+    check_ips adds two non-YouTube requests (exit IP vs home IP)."""
+    try:
+        return vpn.status(check_ips=check_ips)
+    except Exception as exc:  # noqa: BLE001 - health must never raise
+        return {"error": str(exc)[:200]}
 
 
 def _append(entry: dict) -> None:
@@ -79,7 +85,9 @@ def _decode(url: str) -> bool:
 
 
 def selftest(video_id: str = SELFTEST_VIDEO) -> dict:
-    entry: dict = {"ts": round(time.time(), 3), "vpn": vpn_up()}
+    info = vpn_info()
+    entry: dict = {"ts": round(time.time(), 3), "vpn_mode": info.get("mode"),
+                   "vpn_active": info.get("active")}
     gate = yt_gate.status()
     entry["using_cookies"] = gate["using_cookies"]
     if gate["blocked"]:
@@ -160,7 +168,7 @@ def readiness() -> dict:
         "blocked": gate["blocked"],
         "using_cookies": gate["using_cookies"],
         "requests_last_hour": gate["requests_last_hour"],
-        "vpn": vpn_up(),
+        "vpn": vpn_info(),
         "last_selftest_ok": last[0].get("ok"),
         "last_selftest_ts": last[0].get("ts"),
     }

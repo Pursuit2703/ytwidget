@@ -18,6 +18,7 @@ class HealthTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         os.environ["XDG_STATE_HOME"] = self.tmp.name
+        os.environ["XDG_CONFIG_HOME"] = self.tmp.name  # no VPN servers
         os.environ["YTWIDGET_COOKIE_PROFILE"] = "/nonexistent"
         health._cache = (0.0, {})
         yt_gate._sleep = lambda s: None

@@ -18,6 +18,7 @@ class GateTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         os.environ["XDG_STATE_HOME"] = self.tmp.name
+        os.environ["XDG_CONFIG_HOME"] = self.tmp.name  # no VPN servers
         profile = Path(self.tmp.name, "profile")
         profile.mkdir()
         (profile / "cookies.sqlite").write_bytes(b"")

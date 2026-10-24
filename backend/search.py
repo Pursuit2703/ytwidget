@@ -403,6 +403,10 @@ def search(query: str, limit: int = 20) -> list[dict[str, Any]]:
 
 
 def _search_uncached(query: str, limit: int) -> list[dict[str, Any]]:
+    if yt_gate.routes_via_vpn():
+        # InnerTube is a direct HTTP call from the home IP; while YouTube goes
+        # through the VPN, search through yt-dlp (and so the tunnel) instead.
+        return ytdlp_search(query, limit)
     if _fast_path_suspended():
         log_request("search", "", True, 0, "yt-dlp")
         return ytdlp_search(query, limit)

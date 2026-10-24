@@ -1,0 +1,8 @@
+[Unit]
+Description=YT Widget YouTube-only WireGuard proxy (wireproxy, HTTP on 127.0.0.1:25345)
+# Started and stopped only by the ytwidget backend; never enabled at login.
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/wireproxy --config %h/.config/ytwidget/wireproxy.conf
+Restart=no

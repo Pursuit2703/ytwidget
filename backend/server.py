@@ -26,6 +26,7 @@ if str(HERE) not in sys.path:
 
 import audio_output
 import health
+import vpn as vpn_mod
 import play_history
 import playlists
 import queue_session
@@ -352,7 +353,10 @@ class Backend:
         if command in ("hello", "ping", "get_state"):
             return self.state()
         if command == "health":
-            return {"readiness": health.readiness(), "summary": health.summary()}
+            return {"readiness": health.readiness(), "summary": health.summary(),
+                    "vpn": health.vpn_info(check_ips=True)}
+        if command == "set_vpn_mode":
+            return {"mode": vpn_mod.set_mode(str(message.get("mode") or ""))}
         if command == "set_idle_minutes":
             self.idle_minutes = max(0, min(1440, int(message.get("minutes") or 0)))
             return self.state()
@@ -688,6 +692,16 @@ class Backend:
             time.sleep(15)
             with self._clients_lock:
                 clients = len(self._clients)
+            try:
+                # A track resolved through the VPN streams through it for its
+                # whole length, so playback counts as use; stop it only after
+                # 30 minutes with no YouTube traffic at all.
+                if self.player.playing or self.video.active:
+                    vpn_mod.touch()
+                else:
+                    vpn_mod.stop_if_idle()
+            except Exception:
+                pass
             if idle_should_exit(
                 idle_minutes=self.idle_minutes,
                 playing=self.player.playing,
@@ -699,6 +713,10 @@ class Backend:
                 print("ytwidget-backend idle shutdown", file=sys.stderr)
                 try:
                     self._remember_queue()
+                except Exception:
+                    pass
+                try:
+                    vpn_mod.stop()
                 except Exception:
                     pass
                 self._stop.set()

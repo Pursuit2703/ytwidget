@@ -22,7 +22,7 @@ mkdir -p "$lib_dir" "$bin_dir" "$unit_dir"
 
 backend_files=(server.py protocol.py player.py search.py store.py
   play_history.py queue_session.py playlists.py spectrum.py audio_output.py
-  urls.py video.py audio_cache.py request_log.py yt_gate.py health.py)
+  urls.py video.py audio_cache.py request_log.py yt_gate.py health.py vpn.py)
 for name in "${backend_files[@]}"; do
   install -m 644 -- "$source_root/backend/$name" "$lib_dir/$name"
 done
@@ -38,6 +38,22 @@ chmod 755 "$bin_dir/ytwidget-server"
 install -m 644 -- "$source_root/systemd/ytwidget.service" "$unit_dir/ytwidget.service"
 install -m 644 -- "$source_root/systemd/ytwidget-selftest.service" "$unit_dir/ytwidget-selftest.service"
 install -m 644 -- "$source_root/systemd/ytwidget-selftest.timer" "$unit_dir/ytwidget-selftest.timer"
+install -m 644 -- "$source_root/systemd/ytwidget-vpn.service" "$unit_dir/ytwidget-vpn.service"
+
+# YouTube-only VPN (wireproxy). Server configs go in ~/.config/ytwidget/vpn/;
+# the backend points active.conf at the head of its queue. Never overwritten.
+vpn_dir="$HOME/.config/ytwidget/vpn"
+mkdir -p "$vpn_dir" && chmod 700 "$vpn_dir"
+if [[ ! -f "$HOME/.config/ytwidget/wireproxy.conf" ]]; then
+  cat > "$HOME/.config/ytwidget/wireproxy.conf" <<WP
+WGConfig = $vpn_dir/active.conf
+
+[http]
+BindAddress = 127.0.0.1:25345
+WP
+  chmod 600 "$HOME/.config/ytwidget/wireproxy.conf"
+fi
+command -v wireproxy >/dev/null 2>&1 || echo "setup.sh: wireproxy not installed (yay -S wireproxy); the VPN rung stays unavailable."
 systemctl --user daemon-reload
 # The self-test is silent (mpv --ao=null) and runs twice a day.
 systemctl --user enable --now ytwidget-selftest.timer >/dev/null
