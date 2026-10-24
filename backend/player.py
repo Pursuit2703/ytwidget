@@ -424,7 +424,7 @@ class StreamResolver:
             now = time.time()
             with self._lock:
                 cached = self._cache.get(video_id)
-                if cached and cached[0] > now and vpn.current(self._routes.get(video_id)):
+                if cached and cached[0] > now and vpn.route_ok(self._routes.get(video_id)):
                     return cached[1]
                 event = self._inflight.get(video_id)
                 if event is None:
@@ -461,7 +461,7 @@ class StreamResolver:
             event.wait(RESOLVE_TIMEOUT_COLD)
             with self._lock:
                 cached = self._cache.get(video_id)
-                if cached and cached[0] > now:
+                if cached and cached[0] > now and vpn.route_ok(self._routes.get(video_id)):
                     return cached[1]
                 self._inflight_error.pop(video_id, None)
             # Either they failed (nothing cached), or we timed out still
@@ -483,6 +483,10 @@ class StreamResolver:
 
     def _yt_dlp(self, video_id: str, kind: str = "resolve") -> str:
         return self._run_yt_dlp(video_id, kind)
+
+    def routed_via_vpn(self, video_id: str) -> bool:
+        with self._lock:
+            return bool(self._routes.get(str(video_id or "")))
 
     def proxy_for(self, video_id: str, url: str) -> str | None:
         """The proxy a resolved URL must be fetched through, if any."""

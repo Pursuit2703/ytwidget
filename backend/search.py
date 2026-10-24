@@ -69,6 +69,9 @@ def thumbnail_url(video_id: str) -> str:
 
 _conn_lock = threading.Lock()
 _conn: http.client.HTTPSConnection | None = None
+_conn_proxied = False
+# Set per call: route the InnerTube POST through the YouTube VPN proxy.
+_use_proxy = threading.local()
 
 # Circuit breaker. A failing fast path costs a wasted round-trip *before*
 # the fallback even starts, so if YouTube gates us the naive retry-every-time
@@ -118,14 +121,28 @@ def _innertube_post(query: str) -> dict[str, Any]:
         "Accept-Encoding": "gzip",
         "User-Agent": USER_AGENT,
     }
+    global _conn_proxied
+    proxied = bool(getattr(_use_proxy, "on", False))
     for attempt in (1, 2):
         try:
+            if _conn is not None and _conn_proxied != proxied:
+                _drop_connection()  # never reuse a direct socket for VPN traffic
             if _conn is None:
-                _conn = http.client.HTTPSConnection(
-                    INNERTUBE_HOST, 443,
-                    context=ssl.create_default_context(),
-                    timeout=INNERTUBE_TIMEOUT,
-                )
+                if proxied:
+                    import vpn
+                    _conn = http.client.HTTPSConnection(
+                        vpn.PROXY_HOST, vpn.PROXY_PORT,
+                        context=ssl.create_default_context(),
+                        timeout=INNERTUBE_TIMEOUT,
+                    )
+                    _conn.set_tunnel(INNERTUBE_HOST, 443)
+                else:
+                    _conn = http.client.HTTPSConnection(
+                        INNERTUBE_HOST, 443,
+                        context=ssl.create_default_context(),
+                        timeout=INNERTUBE_TIMEOUT,
+                    )
+                _conn_proxied = proxied
                 _conn.connect()
             _conn.request("POST", INNERTUBE_PATH, body=body, headers=headers)
             response = _conn.getresponse()
@@ -403,10 +420,24 @@ def search(query: str, limit: int = 20) -> list[dict[str, Any]]:
 
 
 def _search_uncached(query: str, limit: int) -> list[dict[str, Any]]:
+    _use_proxy.on = False
     if yt_gate.routes_via_vpn():
-        # InnerTube is a direct HTTP call from the home IP; while YouTube goes
-        # through the VPN, search through yt-dlp (and so the tunnel) instead.
-        return ytdlp_search(query, limit)
+        # While YouTube goes through the VPN, so does the InnerTube search
+        # (never the home IP in "always" mode).
+        import vpn
+        try:
+            vpn.ensure_up()
+            _use_proxy.on = True
+        except vpn.VpnError as exc:
+            if vpn.mode() == "always":
+                raise SearchError(str(exc)) from exc
+    try:
+        return _search_routed(query, limit)
+    finally:
+        _use_proxy.on = False
+
+
+def _search_routed(query: str, limit: int) -> list[dict[str, Any]]:
     if _fast_path_suspended():
         log_request("search", "", True, 0, "yt-dlp")
         return ytdlp_search(query, limit)

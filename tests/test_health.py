@@ -36,7 +36,8 @@ class HealthTest(unittest.TestCase):
     def tearDown(self):
         self.patch.stop()
         yt_gate._run, yt_gate._sleep = subprocess.run, time.sleep
-        os.environ.pop("YTWIDGET_COOKIE_PROFILE", None)
+        for key in ("YTWIDGET_COOKIE_PROFILE", "XDG_STATE_HOME", "XDG_CONFIG_HOME"):
+            os.environ.pop(key, None)
         self.tmp.cleanup()
 
     def test_selftest_is_silent_and_logged(self):

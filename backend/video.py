@@ -259,6 +259,10 @@ class VideoResolver:
         self._lock = threading.Lock()
         self._inflight: set[str] = set()
 
+    def clear(self) -> None:
+        with self._lock:
+            self._cache.clear()
+
     def set_sub_lang(self, lang: str) -> None:
         lang = str(lang or "").strip() or DEFAULT_SUB_LANG
         if lang == self.sub_lang:
@@ -271,7 +275,7 @@ class VideoResolver:
     def cached(self, video_id: str) -> dict[str, Any] | None:
         with self._lock:
             entry = self._cache.get(str(video_id or ""))
-        if entry and entry[0] > time.time() and vpn.current(entry[1].get("vpn")):
+        if entry and entry[0] > time.time() and vpn.route_ok(entry[1].get("vpn")):
             return entry[1]
         return None
 
@@ -496,6 +500,16 @@ class VideoWindow:
              resolved: dict[str, Any] | None = None,
              gpu: str = "integrated") -> None:
         video_id = str(video_id or "").strip()
+        # Bring the tunnel up before taking the window lock: a server switch
+        # can take seconds and must not freeze show/close meanwhile.
+        cold_via_vpn = False
+        if yt_gate.routes_via_vpn() or (resolved and resolved.get("vpn")):
+            try:
+                vpn.ensure_up()
+                cold_via_vpn = yt_gate.routes_via_vpn()
+            except vpn.VpnError as exc:
+                if vpn.mode() == "always":
+                    raise VideoError(str(exc)) from exc
         if not video_id:
             raise VideoError("No video to show")
         binary = shutil.which("mpv")
@@ -541,16 +555,13 @@ class VideoWindow:
                     max_height=max_height, speed=self.speed,
                     autofit_percent=autofit_percent, gpu=self.gpu,
                 )
-                if yt_gate.routes_via_vpn():
+                if cold_via_vpn:
                     # mpv's own yt-dlp and its stream fetches both go through
-                    # the tunnel, so the URLs it resolves stay playable.
-                    try:
-                        vpn.ensure_up()
-                        command[1:1] = [f"--http-proxy={vpn.PROXY_URL}",
-                                        f"--ytdl-raw-options-append=proxy={vpn.PROXY_URL}"]
-                    except vpn.VpnError as exc:
-                        if vpn.mode() == "always":
-                            raise VideoError(str(exc)) from exc
+                    # the tunnel. Inserted just before the URL, i.e. after
+                    # subtitle_options' replacing --ytdl-raw-options, so the
+                    # append is not wiped out.
+                    command[-1:-1] = [f"--http-proxy={vpn.PROXY_URL}",
+                                      f"--ytdl-raw-options-append=proxy={vpn.PROXY_URL}"]
             log_path = self.ipc_path.parent / "mpv-video.log"
             stderr = log_path.open("ab")
             try:

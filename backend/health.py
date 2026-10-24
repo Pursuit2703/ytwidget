@@ -54,7 +54,8 @@ def _append(entry: dict) -> None:
         pass
 
 
-def _resolve(video_id: str) -> str:
+def _resolve(video_id: str) -> tuple[str, str | None]:
+    """Stream URL plus the proxy it must be fetched through (VPN resolves)."""
     binary = shutil.which("yt-dlp")
     if not binary:
         raise RuntimeError("yt-dlp is not installed")
@@ -66,10 +67,10 @@ def _resolve(video_id: str) -> str:
     if result.returncode != 0 or not lines:
         detail = (result.stderr or "").strip().splitlines()
         raise RuntimeError(detail[-1][:200] if detail else "no stream URL")
-    return lines[-1]
+    return lines[-1], (vpn.PROXY_URL if getattr(result, "vpn", None) else None)
 
 
-def _decode(url: str) -> bool:
+def _decode(url: str, proxy: str | None = None) -> bool:
     """Decode a couple of seconds with no audio device at all."""
     mpv = shutil.which("mpv")
     if not mpv:
@@ -77,7 +78,8 @@ def _decode(url: str) -> bool:
     try:
         result = subprocess.run(
             [mpv, "--no-config", "--ao=null", "--vo=null", "--no-video",
-             "--ytdl=no", "--really-quiet", f"--length={DECODE_SECONDS}", url],
+             "--ytdl=no", "--really-quiet", f"--length={DECODE_SECONDS}",
+             *([f"--http-proxy={proxy}"] if proxy else []), url],
             capture_output=True, timeout=45, check=False)
     except subprocess.TimeoutExpired:
         return False
@@ -96,9 +98,10 @@ def selftest(video_id: str = SELFTEST_VIDEO) -> dict:
         return entry
     started = time.time()
     try:
-        url = _resolve(video_id)
+        url, proxy = _resolve(video_id)
         entry["resolve_ms"] = int((time.time() - started) * 1000)
-        entry["decode_ok"] = _decode(url)
+        entry["via_vpn"] = bool(proxy)
+        entry["decode_ok"] = _decode(url, proxy)
         entry["ok"] = entry["decode_ok"]
         if not entry["ok"]:
             entry["error"] = "decode failed"

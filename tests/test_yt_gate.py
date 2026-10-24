@@ -37,7 +37,8 @@ class GateTest(unittest.TestCase):
     def tearDown(self):
         import time
         yt_gate._now, yt_gate._sleep, yt_gate._run = time.time, time.sleep, subprocess.run
-        os.environ.pop("YTWIDGET_COOKIE_PROFILE", None)
+        for key in ("YTWIDGET_COOKIE_PROFILE", "XDG_STATE_HOME", "XDG_CONFIG_HOME"):
+            os.environ.pop(key, None)
         self.tmp.cleanup()
 
     def test_success_passes_through_without_cookies(self):

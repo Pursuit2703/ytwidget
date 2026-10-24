@@ -356,7 +356,13 @@ class Backend:
             return {"readiness": health.readiness(), "summary": health.summary(),
                     "vpn": health.vpn_info(check_ips=True)}
         if command == "set_vpn_mode":
-            return {"mode": vpn_mod.set_mode(str(message.get("mode") or ""))}
+            before = vpn_mod.mode()
+            mode = vpn_mod.set_mode(str(message.get("mode") or ""))
+            if mode != before:
+                # URLs resolved under the old mode may be bound to the wrong IP.
+                self.player.resolver.set_quality(self.player.resolver.kbps)
+                self.video_resolver.clear()
+            return {"mode": mode}
         if command == "set_idle_minutes":
             self.idle_minutes = max(0, min(1440, int(message.get("minutes") or 0)))
             return self.state()
@@ -696,7 +702,10 @@ class Backend:
                 # A track resolved through the VPN streams through it for its
                 # whole length, so playback counts as use; stop it only after
                 # 30 minutes with no YouTube traffic at all.
-                if self.player.playing or self.video.active:
+                current = self.player.current or {}
+                proxied_loaded = self.player.resolver.routed_via_vpn(current.get("videoId", ""))
+                if self.player.playing or self.video.active or proxied_loaded:
+                    # A loaded VPN track (even paused) needs its tunnel to resume.
                     vpn_mod.touch()
                 else:
                     vpn_mod.stop_if_idle()

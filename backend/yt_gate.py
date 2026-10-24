@@ -269,20 +269,17 @@ def run(command: list[str], timeout: int, kind: str = "request",
                 vpn.touch()
                 result.vpn = tag
                 return result
-            if tries == 1:
-                break
+            if kind in OPTIONAL_KINDS:
+                # Never switch servers (and cut a playing stream) for a prefetch.
+                return None
+            reason = ((result.stderr or "").strip().splitlines() or ["blocked"])[-1]
             try:
-                tag = vpn.rotate((result.stderr or "").strip().splitlines()[-1]
-                                 if (result.stderr or "").strip() else "blocked")
+                new_tag = vpn.rotate(reason, tag)
             except vpn.VpnError as exc:
                 log_request("vpn", video_id, False, 0, str(exc))
                 break
-            log_request("vpn_rotate", video_id, True, 0, tag[0])
-        # Both servers blocked: the next request starts on a fresh head.
-        try:
-            vpn.rotate("blocked")
-        except vpn.VpnError:
-            pass
+            log_request("vpn_rotate", video_id, True, 0, f"{tag[0]} -> {new_tag[0]}")
+            tag = new_tag
         return None
 
     if vmode == "always" or (vmode == "fallback" and state.get("vpn_until", 0) > now):
@@ -326,8 +323,9 @@ def run(command: list[str], timeout: int, kind: str = "request",
         if result is not None:
             # The home IP is blocked: keep using the VPN for a while instead
             # of knocking on the blocked door before every request.
-            with _transaction() as state:
-                state["vpn_until"] = _now() + VPN_HOLD_SECONDS
+            if result.returncode == 0:
+                with _transaction() as state:
+                    state["vpn_until"] = _now() + VPN_HOLD_SECONDS
             log_request("vpn_rescue", video_id, result.returncode == 0, 0, result.vpn[0])
             return result
 

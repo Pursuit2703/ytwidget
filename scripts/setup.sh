@@ -39,6 +39,8 @@ install -m 644 -- "$source_root/systemd/ytwidget.service" "$unit_dir/ytwidget.se
 install -m 644 -- "$source_root/systemd/ytwidget-selftest.service" "$unit_dir/ytwidget-selftest.service"
 install -m 644 -- "$source_root/systemd/ytwidget-selftest.timer" "$unit_dir/ytwidget-selftest.timer"
 install -m 644 -- "$source_root/systemd/ytwidget-vpn.service" "$unit_dir/ytwidget-vpn.service"
+install -m 644 -- "$source_root/systemd/ytwidget-vpn-idle.service" "$unit_dir/ytwidget-vpn-idle.service"
+install -m 644 -- "$source_root/systemd/ytwidget-vpn-idle.timer" "$unit_dir/ytwidget-vpn-idle.timer"
 
 # YouTube-only VPN (wireproxy). Server configs go in ~/.config/ytwidget/vpn/;
 # the backend points active.conf at the head of its queue. Never overwritten.
@@ -57,6 +59,8 @@ command -v wireproxy >/dev/null 2>&1 || echo "setup.sh: wireproxy not installed 
 systemctl --user daemon-reload
 # The self-test is silent (mpv --ao=null) and runs twice a day.
 systemctl --user enable --now ytwidget-selftest.timer >/dev/null
+# Stops a tunnel that Hazel or the self-test started when no backend is running.
+systemctl --user enable --now ytwidget-vpn-idle.timer >/dev/null
 
 echo "Installed ytwidget-server to $bin_dir/ytwidget-server"
 echo "The user unit is $unit_dir/ytwidget.service and is not enabled at login."

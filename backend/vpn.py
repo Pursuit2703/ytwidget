@@ -40,8 +40,15 @@ DEFAULT_MODE = "fallback"
 _lock = threading.Lock()
 # Replaced by tests.
 _now = time.time
-_systemctl = lambda *args: subprocess.run(  # noqa: E731
-    ["systemctl", "--user", *args], capture_output=True, text=True, timeout=20, check=False)
+def _systemctl_real(*args):
+    try:
+        return subprocess.run(["systemctl", "--user", *args], capture_output=True,
+                              text=True, timeout=20, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return subprocess.CompletedProcess(args, 1, "", str(exc))
+
+
+_systemctl = _systemctl_real
 
 
 class VpnError(RuntimeError):
@@ -90,6 +97,33 @@ def set_mode(value: str) -> str:
 
 # ----------------------------------------------------------------- queue state
 
+_switch_lock = threading.Lock()
+
+
+@contextmanager
+def _switching():
+    """Only one thread/process switches the tunnel at a time. Held across the
+    slow restart + ipify check, but never together with the state lock, so
+    readers (generation, current, status) never wait on a switch."""
+    path = _state_path().with_name("vpn_switch.lock")
+    with _switch_lock:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def _read() -> dict:
+    """Lock-free snapshot; writers replace the file atomically."""
+    try:
+        state = json.loads(_state_path().read_text(encoding="utf-8"))
+        return state if isinstance(state, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
 @contextmanager
 def _transaction():
     """Read-modify-write the queue under a thread lock and a cross-process flock."""
@@ -116,7 +150,7 @@ def _transaction():
 def available() -> list[str]:
     try:
         return sorted(p.name for p in server_dir().glob("*.conf")
-                      if p.name != active_link().name and p.is_file() and not p.is_symlink())
+                      if p.name != active_link().name and p.is_file())
     except OSError:
         return []
 
@@ -182,53 +216,101 @@ def _start_on(name: str) -> bool:
     return bool(exit_ip())
 
 
+def _link_points_at(name: str) -> bool:
+    return os.path.realpath(active_link()) == os.path.realpath(server_dir() / name)
+
+
 def ensure_up() -> tuple[str, int]:
     """Make sure the tunnel runs on the queue head. Returns (server, generation);
-    the generation changes on every switch so stream URLs can be re-resolved."""
-    with _transaction() as state:
-        order = _synced(state)
-        if not order:
-            raise VpnError("No VPN servers are set up for YouTube. Add Proton configs to "
-                           f"{server_dir()}.")
-        current = state.get("active")
-        healthy = (current == order[0] and unit_active() and proxy_listening()
-                   and os.path.realpath(active_link()) == str(server_dir() / order[0]))
-        if not healthy:
-            for _ in range(len(order)):
-                if _start_on(order[0]):
-                    break
-                order.append(order.pop(0))  # dead tunnel: to the back, try the next
-            else:
-                _systemctl("stop", UNIT)
-                state["active"] = None
-                raise VpnError("None of the VPN servers answered.")
-            state["active"] = order[0]
-            state["generation"] = int(state.get("generation", 0)) + 1
-        state["last_used"] = _now()
-        return state["active"], int(state.get("generation", 0))
+    the generation changes on every switch so stream URLs can be re-resolved.
+    Raises VpnError only."""
+    try:
+        with _switching():
+            return _ensure_up()
+    except VpnError:
+        raise
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        raise VpnError(f"The YouTube VPN failed: {exc}") from exc
 
 
-def rotate(reason: str = "") -> tuple[str, int]:
-    """The active server is blocked: send it to the back and switch."""
+def _ensure_up() -> tuple[str, int]:
     with _transaction() as state:
-        order = _synced(state)
-        if order:
-            order.append(order.pop(0))
-        state["active"] = None
-        state["last_rotation"] = {"ts": _now(), "reason": reason[:120]}
+        order = list(_synced(state))
+        active = state.get("active")
+        gen = int(state.get("generation", 0))
+    if not order:
+        raise VpnError("No VPN servers are set up for YouTube. Add Proton configs to "
+                       f"{server_dir()}.")
+    if active == order[0] and proxy_listening() and _link_points_at(active) and unit_active():
+        touch()
+        return active, gen
+    dead: list[str] = []
+    chosen = None
+    for name in order:
+        if _start_on(name):
+            chosen = name
+            break
+        dead.append(name)  # dead tunnel: to the back, try the next
+    with _transaction() as state:
+        queue_now = _synced(state)
+        for name in dead:
+            if name in queue_now:
+                queue_now.remove(name)
+                queue_now.append(name)
+        if chosen is None:
+            state["active"] = None
+        else:
+            if chosen in queue_now:
+                queue_now.remove(chosen)
+                queue_now.insert(0, chosen)
+            state["active"] = chosen
+            state["generation"] = gen = int(state.get("generation", 0)) + 1
+            state["last_used"] = _now()
+    if chosen is None:
+        _systemctl("stop", UNIT)
+        raise VpnError("None of the VPN servers answered.")
+    return chosen, gen
+
+
+def rotate(reason: str = "", tag: tuple[str, int] | None = None) -> tuple[str, int]:
+    """The server in `tag` is blocked: send it to the back and switch. If
+    another request already rotated away from it, just use the new head."""
+    try:
+        with _switching():
+            with _transaction() as state:
+                order = _synced(state)
+                stale = tag is not None and (state.get("active") != tag[0]
+                                             or int(state.get("generation", 0)) != tag[1])
+                if not stale:
+                    blocked = tag[0] if tag else (order[0] if order else None)
+                    if blocked in order:
+                        order.remove(blocked)
+                        order.append(blocked)
+                    state["active"] = None
+                    state["last_rotation"] = {"ts": _now(), "server": blocked,
+                                              "reason": reason[:120]}
+    except (OSError, ValueError) as exc:
+        raise VpnError(f"The YouTube VPN failed: {exc}") from exc
     return ensure_up()
 
 
 def generation() -> int:
-    with _transaction() as state:
-        return int(state.get("generation", 0)) if state.get("active") else -1
+    state = _read()
+    return int(state.get("generation", 0)) if state.get("active") else -1
 
 
 def current(tag: tuple[str, int] | None) -> bool:
-    """Is a URL resolved through server/generation `tag` still playable now?"""
+    """Is a URL resolved through `tag` (None = home connection) still usable?"""
     if not tag:
-        return True
-    return generation() == tag[1] and unit_active()
+        return mode() != "always"  # never replay a home-IP URL in "always" mode
+    return generation() == tag[1] and proxy_listening()
+
+
+def route_ok(tag: tuple[str, int] | None) -> bool:
+    try:
+        return current(tag)
+    except Exception:  # noqa: BLE001 - a broken check means "resolve again"
+        return False
 
 
 def touch() -> None:
@@ -243,11 +325,13 @@ def stop() -> None:
 
 
 def stop_if_idle() -> bool:
-    with _transaction() as state:
-        idle = state.get("active") and _now() - state.get("last_used", 0) > IDLE_STOP_SECONDS
-    if idle:
-        stop()
-    return bool(idle)
+    with _switching():  # an ensure_up cannot slip in between check and stop
+        state = _read()
+        idle = bool(state.get("active")) and _now() - state.get("last_used", 0) > IDLE_STOP_SECONDS
+        if idle or (not state.get("active") and unit_active()):
+            stop()
+            return True
+    return False
 
 
 def status(check_ips: bool = False) -> dict:
@@ -266,3 +350,13 @@ def status(check_ips: bool = False) -> dict:
         info["direct_ip"] = exit_ip(via_proxy=False)
         info["ip_differs"] = bool(info["exit_ip"]) and info["exit_ip"] != info["direct_ip"]
     return info
+
+
+if __name__ == "__main__":
+    # Used by ytwidget-vpn-idle.timer, so a tunnel started by Hazel or the
+    # self-test (no backend running) still stops after 30 minutes unused.
+    import sys
+    if sys.argv[1:] == ["stop-if-idle"]:
+        print("stopped" if stop_if_idle() else "kept")
+    else:
+        print(json.dumps(status(check_ips="--ips" in sys.argv), indent=2))

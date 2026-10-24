@@ -1,0 +1,6 @@
+[Unit]
+Description=Stop the YT Widget YouTube VPN after 30 minutes unused
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/lib/ytwidget/vpn.py stop-if-idle

@@ -78,7 +78,8 @@ class VpnBase(unittest.TestCase):
         for p in self.patches:
             p.stop()
         yt_gate._run, yt_gate._sleep = subprocess.run, time.sleep
-        os.environ.pop("YTWIDGET_COOKIE_PROFILE", None)
+        for key in ("YTWIDGET_COOKIE_PROFILE", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME"):
+            os.environ.pop(key, None)
         self.tmp.cleanup()
 
 
@@ -133,6 +134,37 @@ class QueueTests(VpnBase):
         with mock.patch.object(vpn, "_now", lambda: time.time() + vpn.IDLE_STOP_SECONDS + 5):
             self.assertTrue(vpn.stop_if_idle())
         self.assertFalse(self.tunnel.active)
+
+    def test_stale_rotation_does_not_skip_a_healthy_server(self):
+        tag = vpn.ensure_up()
+        vpn.rotate("429", tag)            # request A: a -> b
+        name, _ = vpn.rotate("429", tag)  # request B saw the same block on a
+        self.assertEqual(name, "b.conf")
+        self.assertEqual(vpn.queue(), ["b.conf", "c.conf", "a.conf"])
+
+    def test_home_ip_url_not_reused_in_always_mode(self):
+        self.assertTrue(vpn.current(None))
+        vpn.set_mode("always")
+        self.assertFalse(vpn.current(None))
+
+    def test_symlinked_config_is_a_server(self):
+        real = Path(self.tmp.name, "elsewhere.conf")
+        real.write_text("")
+        (vpn.server_dir() / "d.conf").symlink_to(real)
+        self.assertIn("d.conf", vpn.queue())
+
+    def test_failures_become_vpn_errors(self):
+        with mock.patch.object(vpn, "_point_at", side_effect=PermissionError("denied")):
+            with self.assertRaises(vpn.VpnError):
+                vpn.ensure_up()
+
+    def test_dead_servers_are_remembered_at_the_back(self):
+        self.tunnel.dead = set(self.servers)
+        with self.assertRaises(vpn.VpnError):
+            vpn.ensure_up()
+        self.assertEqual(vpn.queue(), ["a.conf", "b.conf", "c.conf"])
+        self.tunnel.dead = {"a.conf"}
+        self.assertEqual(vpn.ensure_up()[0], "b.conf")
 
     def test_mode_file(self):
         self.assertEqual(vpn.mode(), "fallback")
@@ -190,6 +222,20 @@ class LadderTests(VpnBase):
             yt_gate.run(["yt-dlp", "u"], 10)
         self.assertEqual(self.tunnel.restarts, [])
 
+    def test_prefetch_never_rotates(self):
+        self.script = [BOT, OK]
+        yt_gate.run(["yt-dlp", "u"], 10)  # rescue: VPN on a.conf, hold set
+        self.script = [BOT]
+        with self.assertRaises(yt_gate.Blocked):
+            yt_gate.run(["yt-dlp", "u"], 10, kind="prefetch")
+        self.assertEqual(self.tunnel.restarts, ["a.conf"])
+
+    def test_failed_vpn_result_does_not_set_hold(self):
+        private = subprocess.CompletedProcess([], 1, "", "ERROR: [youtube] x: Private video")
+        self.script = [BOT, private]
+        yt_gate.run(["yt-dlp", "u"], 10)
+        self.assertFalse(yt_gate.routes_via_vpn())
+
     def test_vpn_requests_count_against_budget(self):
         self.script = [BOT, OK]
         yt_gate.run(["yt-dlp", "u"], 10)
@@ -197,6 +243,37 @@ class LadderTests(VpnBase):
 
 
 class StreamBindingTests(VpnBase):
+    def test_cold_video_proxy_survives_subtitle_options(self):
+        import video
+        command = video.command_line("mpv", "https://youtube.com/watch?v=x", Path("/tmp/s"),
+                                     title="t", start_ms=0, volume=1, sub_lang="en",
+                                     max_height=720)
+        command[-1:-1] = [f"--http-proxy={vpn.PROXY_URL}",
+                          f"--ytdl-raw-options-append=proxy={vpn.PROXY_URL}"]
+        replace = max(i for i, c in enumerate(command) if c.startswith("--ytdl-raw-options="))
+        append = command.index(f"--ytdl-raw-options-append=proxy={vpn.PROXY_URL}")
+        self.assertGreater(append, replace)
+        self.assertEqual(command[-1], "https://youtube.com/watch?v=x")
+
+    def test_selftest_decodes_through_proxy(self):
+        import health
+        vpn.set_mode("always")
+        mpv_calls = []
+        real_run = health.subprocess.run
+
+        def fake(cmd, **kw):
+            if "mpv" in str(cmd[0]):
+                mpv_calls.append(cmd)
+                return subprocess.CompletedProcess(cmd, 0, b"", b"")
+            return real_run(cmd, **kw)
+        with mock.patch.object(health.subprocess, "run", fake), \
+             mock.patch.object(health.shutil, "which", lambda name: "/usr/bin/" + name):
+            entry = health.selftest()
+        self.assertTrue(entry["ok"], entry)
+        self.assertTrue(entry["via_vpn"])
+        self.assertIn(f"--http-proxy={vpn.PROXY_URL}", mpv_calls[0])
+        self.assertIn("--ao=null", mpv_calls[0])
+
     def test_player_binds_proxy_and_reresolves_after_switch(self):
         import player
         resolver = player.StreamResolver()
