@@ -80,7 +80,10 @@ def evict(directory: Path, cap_bytes: int) -> None:
 
 
 def _download(video_id: str, url: str, size: int, ext: str, directory: Path,
-              cap_bytes: int) -> None:
+              cap_bytes: int, proxy: str | None = None) -> None:
+    # A URL resolved through the VPN only works from that exit IP.
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({"http": proxy, "https": proxy} if proxy else {}))
     final = directory / f"{video_id}{ext}"
     part = directory / f"{video_id}{ext}.part"
     try:
@@ -91,7 +94,7 @@ def _download(video_id: str, url: str, size: int, ext: str, directory: Path,
                 end = min(offset + CHUNK_BYTES, size) - 1
                 request = urllib.request.Request(
                     url, headers={"Range": f"bytes={offset}-{end}"})
-                with urllib.request.urlopen(request, timeout=20) as response:
+                with opener.open(request, timeout=20) as response:
                     data = response.read()
                 if not data:
                     raise OSError("empty chunk")
@@ -117,7 +120,7 @@ class Filler:
         self._busy: set[str] = set()
         self._worker = threading.Lock()
 
-    def schedule(self, video_id: str, url: str) -> bool:
+    def schedule(self, video_id: str, url: str, proxy: str | None = None) -> bool:
         if not VIDEO_ID_RE.match(video_id or "") or lookup(video_id, self.directory):
             return False
         info = stream_info(url)
@@ -132,7 +135,7 @@ class Filler:
             try:
                 with self._worker:
                     _download(video_id, url, info[0], info[1], self.directory,
-                              self.cap_bytes)
+                              self.cap_bytes, proxy)
             finally:
                 with self._lock:
                     self._busy.discard(video_id)

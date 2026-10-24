@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import audio_cache
+import vpn
 import yt_gate
 from play_history import video_id as item_video_id
 from spectrum import SpectrumTap
@@ -148,8 +149,11 @@ def mpris_title(item: dict | None = None) -> str:
     return title
 
 
-def loadfile_command(url: str, item: dict | None = None) -> list:
+def loadfile_command(url: str, item: dict | None = None, proxy: str | None = None) -> list:
     options = {"force-media-title": mpris_title(item)}
+    if proxy:
+        # A URL resolved through the VPN is bound to that exit IP.
+        options["http-proxy"] = proxy
     return ["loadfile", url, "replace", -1, options]
 
 
@@ -393,6 +397,8 @@ class StreamResolver:
     def __init__(self, kbps: int = 320):
         self.kbps = kbps
         self._cache: dict[str, tuple[float, str]] = {}
+        # video_id -> (server, generation) when the URL came through the VPN.
+        self._routes: dict[str, tuple[str, int] | None] = {}
         self._lock = threading.Lock()
         # video_id -> the event the in-flight resolve for it will set when
         # done, and (if it failed) the error text to hand to anyone waiting.
@@ -404,6 +410,7 @@ class StreamResolver:
         self.kbps = kbps
         with self._lock:
             self._cache.clear()
+            self._routes.clear()
 
     def resolve(self, video_id: str, kind: str = "resolve") -> str:
         video_id = str(video_id or "").strip()
@@ -417,7 +424,7 @@ class StreamResolver:
             now = time.time()
             with self._lock:
                 cached = self._cache.get(video_id)
-                if cached and cached[0] > now:
+                if cached and cached[0] > now and vpn.current(self._routes.get(video_id)):
                     return cached[1]
                 event = self._inflight.get(video_id)
                 if event is None:
@@ -444,7 +451,7 @@ class StreamResolver:
                     self._inflight_error.pop(video_id, None)
                     self._inflight.pop(video_id, None)
                 event.set()
-                self.cache_filler.schedule(video_id, url)
+                self.cache_filler.schedule(video_id, url, self.proxy_for(video_id, url))
                 return url
             # Someone else is already resolving this exact video. Wait for
             # their outcome (bounded by the same worst-case timeout their own
@@ -476,6 +483,14 @@ class StreamResolver:
 
     def _yt_dlp(self, video_id: str, kind: str = "resolve") -> str:
         return self._run_yt_dlp(video_id, kind)
+
+    def proxy_for(self, video_id: str, url: str) -> str | None:
+        """The proxy a resolved URL must be fetched through, if any."""
+        if not url or url.startswith("/"):
+            return None  # saved file on disk
+        with self._lock:
+            tag = self._routes.get(video_id)
+        return vpn.PROXY_URL if tag else None
 
     def _run_yt_dlp(self, video_id: str, kind: str = "resolve") -> str:
         binary = shutil.which("yt-dlp")
@@ -515,6 +530,8 @@ class StreamResolver:
             detail = (result.stderr or "").strip().splitlines()
             raise PlayerError(playback_error_message(
                 detail[-1] if detail else "Could not resolve audio stream"))
+        with self._lock:
+            self._routes[video_id] = getattr(result, "vpn", None)
         return stream[-1]
 
 
@@ -1145,7 +1162,7 @@ class QueuePlayer:
                 # Load at silence so the new track cannot burst in at full
                 # volume in the gap before the fade-in thread gets scheduled.
                 self._set_output_volume(0.0)
-            self.mpv.command(loadfile_command(url, item))
+            self.mpv.command(loadfile_command(url, item, self.resolver.proxy_for(video_id, url)))
             self.mpv.command(["set_property", "pause", not start])
             self.playing = start
             self.position_ms = 0

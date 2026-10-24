@@ -26,11 +26,15 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+import vpn
 from request_log import log_request
 
 # Not a bare "429": that also matches video ids and timings in stderr.
 BLOCK_RE = re.compile(r"HTTP Error 429|too many requests|not a bot|confirm you.re not", re.I)
 COOKIE_ERROR_RE = re.compile(r"cookie", re.I)
+VPN_403_RE = re.compile(r"HTTP Error 403|403: Forbidden", re.I)
+# After the VPN rescued a blocked home IP, go straight to the VPN this long.
+VPN_HOLD_SECONDS = 3600
 # Optional work never waits longer than this for its slot.
 MAX_OPTIONAL_WAIT = 5.0
 OPTIONAL_KINDS = {"prefetch"}
@@ -128,8 +132,13 @@ def _with_cookies(command: list[str], profile: str) -> list[str]:
     return [command[0], "--cookies-from-browser", f"firefox:{profile}", *command[1:]]
 
 
-def _blocked_text(result: subprocess.CompletedProcess) -> bool:
-    return result.returncode != 0 and bool(BLOCK_RE.search(result.stderr or ""))
+def _blocked_text(result: subprocess.CompletedProcess, vpn_path: bool = False) -> bool:
+    """A block signal. Through the VPN a 403 also counts: the server's shared
+    IP is refused, which rotating fixes."""
+    if result.returncode == 0:
+        return False
+    text = result.stderr or ""
+    return bool(BLOCK_RE.search(text) or (vpn_path and VPN_403_RE.search(text)))
 
 
 def _message(seconds_left: float, budget: bool = False) -> str:
@@ -193,10 +202,27 @@ def note_external(kind: str, video_id: str = "") -> None:
     log_request(kind, video_id, True, 0, "external")
 
 
+def routes_via_vpn() -> bool:
+    """True when YouTube requests should go straight to the VPN rung: mode
+    "always", or "fallback" while the home IP is known to be blocked."""
+    vmode = vpn.mode()
+    if vmode == "always":
+        return True
+    return vmode == "fallback" and _load().get("vpn_until", 0) > _now()
+
+
+def _proxied(command: list[str]) -> list[str]:
+    return [command[0], "--proxy", vpn.PROXY_URL, *command[1:]]
+
+
 def run(command: list[str], timeout: int, kind: str = "request",
         video_id: str = "") -> subprocess.CompletedProcess:
     """Run a yt-dlp command through the gate. Raises Blocked, or
-    subprocess.TimeoutExpired exactly as subprocess.run would."""
+    subprocess.TimeoutExpired exactly as subprocess.run would.
+
+    Ladder: direct -> Firefox cookies -> VPN (at most 2 servers) -> breaker.
+    A result that came through the VPN carries `.vpn = (server, generation)`,
+    because its stream URLs only play through that same tunnel."""
     state = _load()
     now = _now()
     if state.get("blocked_until", 0) > now:
@@ -205,9 +231,9 @@ def run(command: list[str], timeout: int, kind: str = "request",
     if len(recent) >= HOURLY_CAP:
         raise Blocked(_message(recent[0] + 3600 - now, budget=True))
 
+    vmode = vpn.mode()
+    base = list(command)
     profile = firefox_profile()
-    use_cookies = bool(profile) and state.get("cookies_until", 0) > now
-    command = _with_cookies(command, profile) if use_cookies else command
 
     def attempt(cmd: list[str]) -> subprocess.CompletedProcess:
         wait = _reserve_slot(MAX_OPTIONAL_WAIT if kind in OPTIONAL_KINDS else None)
@@ -225,7 +251,50 @@ def run(command: list[str], timeout: int, kind: str = "request",
                     int((_now() - started) * 1000),
                     (result.stderr or "").strip().splitlines()[-1][:100]
                     if result.returncode != 0 and (result.stderr or "").strip() else "")
+        result.vpn = None
         return result
+
+    def via_vpn() -> subprocess.CompletedProcess | None:
+        """Up to two servers. None means the VPN rung gave up."""
+        try:
+            tag = vpn.ensure_up()
+        except vpn.VpnError as exc:
+            log_request("vpn", video_id, False, 0, str(exc))
+            if vmode == "always":
+                raise Blocked(str(exc)) from exc
+            return None
+        for tries in range(2):
+            result = attempt(_proxied(base))
+            if not _blocked_text(result, vpn_path=True):
+                vpn.touch()
+                result.vpn = tag
+                return result
+            if tries == 1:
+                break
+            try:
+                tag = vpn.rotate((result.stderr or "").strip().splitlines()[-1]
+                                 if (result.stderr or "").strip() else "blocked")
+            except vpn.VpnError as exc:
+                log_request("vpn", video_id, False, 0, str(exc))
+                break
+            log_request("vpn_rotate", video_id, True, 0, tag[0])
+        # Both servers blocked: the next request starts on a fresh head.
+        try:
+            vpn.rotate("blocked")
+        except vpn.VpnError:
+            pass
+        return None
+
+    if vmode == "always" or (vmode == "fallback" and state.get("vpn_until", 0) > now):
+        result = via_vpn()
+        if result is not None:
+            return result
+        if vmode == "always":
+            return _open_breaker(video_id, "VPN servers are blocked too")
+        # "fallback" whose tunnel failed: try the home connection after all.
+
+    use_cookies = bool(profile) and state.get("cookies_until", 0) > now
+    command = _with_cookies(base, profile) if use_cookies else base
 
     result = attempt(command)
     if (use_cookies and result.returncode != 0 and not _blocked_text(result)
@@ -235,9 +304,7 @@ def run(command: list[str], timeout: int, kind: str = "request",
         with _transaction() as state:
             state["cookies_until"] = 0
         use_cookies = False
-        command = [c for i, c in enumerate(command)
-                   if c != "--cookies-from-browser"
-                   and not (i > 0 and command[i - 1] == "--cookies-from-browser")]
+        command = base
         result = attempt(command)
     if not _blocked_text(result):
         if result.returncode == 0:
@@ -247,13 +314,27 @@ def run(command: list[str], timeout: int, kind: str = "request",
         return result
 
     if profile and not use_cookies:
-        retry = attempt(_with_cookies(command, profile))
+        retry = attempt(_with_cookies(base, profile))
         if retry.returncode == 0:
             with _transaction() as state:
                 state["cookies_until"] = _now() + COOKIE_HOLD_SECONDS
             log_request("cookie_rescue", video_id, True, 0)
             return retry
 
+    if vmode == "fallback":
+        result = via_vpn()
+        if result is not None:
+            # The home IP is blocked: keep using the VPN for a while instead
+            # of knocking on the blocked door before every request.
+            with _transaction() as state:
+                state["vpn_until"] = _now() + VPN_HOLD_SECONDS
+            log_request("vpn_rescue", video_id, result.returncode == 0, 0, result.vpn[0])
+            return result
+
+    return _open_breaker(video_id)
+
+
+def _open_breaker(video_id: str, why: str = "") -> subprocess.CompletedProcess:
     with _transaction() as state:
         now = _now()
         if state.get("blocked_until", 0) > now:
@@ -266,5 +347,6 @@ def run(command: list[str], timeout: int, kind: str = "request",
             state["strikes"] = strikes + 1
             state["blocked_until"] = now + delay
         state["cookies_until"] = 0
-    log_request("breaker_open", video_id, False, 0, f"{int(delay) // 60} min")
+        state["vpn_until"] = 0
+    log_request("breaker_open", video_id, False, 0, f"{int(delay) // 60} min {why}".strip())
     raise Blocked(_message(delay))
