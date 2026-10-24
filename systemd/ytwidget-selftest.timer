@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the YT Widget silent self-test twice a day
+
+[Timer]
+OnCalendar=*-*-* 10,22:00:00
+RandomizedDelaySec=45min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

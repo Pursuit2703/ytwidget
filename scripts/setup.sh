@@ -22,7 +22,7 @@ mkdir -p "$lib_dir" "$bin_dir" "$unit_dir"
 
 backend_files=(server.py protocol.py player.py search.py store.py
   play_history.py queue_session.py playlists.py spectrum.py audio_output.py
-  urls.py video.py audio_cache.py request_log.py yt_gate.py)
+  urls.py video.py audio_cache.py request_log.py yt_gate.py health.py)
 for name in "${backend_files[@]}"; do
   install -m 644 -- "$source_root/backend/$name" "$lib_dir/$name"
 done
@@ -36,7 +36,12 @@ EOF
 chmod 755 "$bin_dir/ytwidget-server"
 
 install -m 644 -- "$source_root/systemd/ytwidget.service" "$unit_dir/ytwidget.service"
+install -m 644 -- "$source_root/systemd/ytwidget-selftest.service" "$unit_dir/ytwidget-selftest.service"
+install -m 644 -- "$source_root/systemd/ytwidget-selftest.timer" "$unit_dir/ytwidget-selftest.timer"
 systemctl --user daemon-reload
+# The self-test is silent (mpv --ao=null) and runs twice a day.
+systemctl --user enable --now ytwidget-selftest.timer >/dev/null
 
 echo "Installed ytwidget-server to $bin_dir/ytwidget-server"
 echo "The user unit is $unit_dir/ytwidget.service and is not enabled at login."
+echo "Silent self-test timer: ytwidget-selftest.timer (twice a day, no audio)."

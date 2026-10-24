@@ -1,0 +1,7 @@
+[Unit]
+Description=YT Widget silent playback self-test (no audio output)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/lib/ytwidget/health.py selftest
+Nice=10

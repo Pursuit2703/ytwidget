@@ -25,6 +25,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import audio_output
+import health
 import play_history
 import playlists
 import queue_session
@@ -138,6 +139,7 @@ class Backend:
             "video_playing": self.video.active and not self.video.paused,
             "video_id": self.video.video_id if self.video.active else "",
             "video_speed": self.video.speed,
+            "health": health.readiness(),
             "video_height": self.video.height,
             "video_heights": list(self.video.heights),
             "video_speeds": list(video_mod.SPEEDS),
@@ -349,6 +351,8 @@ class Backend:
         self.player.note_activity()
         if command in ("hello", "ping", "get_state"):
             return self.state()
+        if command == "health":
+            return {"readiness": health.readiness(), "summary": health.summary()}
         if command == "set_idle_minutes":
             self.idle_minutes = max(0, min(1440, int(message.get("minutes") or 0)))
             return self.state()
