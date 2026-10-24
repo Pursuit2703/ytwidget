@@ -25,6 +25,7 @@ from __future__ import annotations
 import gzip
 import http.client
 import json
+import re
 import shutil
 import ssl
 import subprocess
@@ -343,6 +344,35 @@ def _cache_put(query: str, limit: int, items: list) -> None:
         pass
 
 
+def saved_matches(query: str, limit: int) -> list[dict[str, Any]]:
+    """Saved (on-disk) tracks whose title or channel contains every query word.
+
+    Used while YouTube is blocking us, so a saved song can still be found by
+    name. Candidates come from play history and earlier search results.
+    """
+    import audio_cache
+    import play_history
+    words = [w for w in re.findall(r"\w+", query.lower()) if len(w) > 1]
+    if not words:
+        return []
+    candidates: list[dict[str, Any]] = list(play_history.load())
+    for entry in _cache_load().values():
+        candidates.extend(entry.get("items") or [])
+    seen: set[str] = set()
+    found: list[dict[str, Any]] = []
+    for item in candidates:
+        vid = str(item.get("videoId") or "")
+        if not vid or vid in seen or audio_cache.lookup(vid) is None:
+            continue
+        seen.add(vid)
+        text = f"{item.get('name', '')} {item.get('subtitle', '')}".lower()
+        if all(w in text for w in words):
+            found.append(item)
+            if len(found) >= limit:
+                break
+    return found
+
+
 # ----------------------------------------------------------------- dispatch
 
 def search(query: str, limit: int = 20) -> list[dict[str, Any]]:
@@ -356,6 +386,9 @@ def search(query: str, limit: int = 20) -> list[dict[str, Any]]:
         return cached
     info = yt_gate.status()
     if info["blocked"]:
+        saved = saved_matches(query, limit)
+        if saved:
+            return saved
         raise SearchError(yt_gate._message(info["seconds_left"]))
     items = _search_uncached(query, limit)
     _cache_put(query, limit, items)
