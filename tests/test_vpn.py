@@ -20,8 +20,9 @@ FORBIDDEN = subprocess.CompletedProcess([], 1, "", "ERROR: unable to download: H
 class FakeTunnel:
     """Stands in for systemctl + wireproxy + ipify. No network, no units."""
 
-    def __init__(self, dead=()):
+    def __init__(self, dead=(), blocked_ports=()):
         self.dead = set(dead)
+        self.blocked_ports = set(blocked_ports)
         self.active = False
         self.restarts = []
 
@@ -29,20 +30,30 @@ class FakeTunnel:
         verb = args[0]
         if verb == "restart":
             self.active = True
-            self.restarts.append(os.readlink(vpn.active_link()))
+            self.restarts.append(self.server())
         elif verb == "stop":
             self.active = False
         rc = 0 if (verb != "is-active" or self.active) else 3
         return subprocess.CompletedProcess(args, rc, "", "")
 
+    def endpoint(self):
+        try:
+            text = vpn.active_link().read_text()
+        except OSError:
+            return None, None
+        name = text.split(" from ", 1)[1].split(" on port ", 1)[0]
+        return name, int(vpn.ENDPOINT_RE.search(text)[3])
+
     def server(self):
-        return os.readlink(vpn.active_link()) if vpn.active_link().is_symlink() else None
+        return self.endpoint()[0]
 
     def exit_ip(self, via_proxy=True, timeout=8.0):
         if not via_proxy:
             return "45.9.230.63"
-        name = self.server()
-        return "" if (not self.active or name in self.dead) else f"10.0.0.{ord(name[0])}"
+        name, port = self.endpoint()
+        if not self.active or name in self.dead or port in self.blocked_ports:
+            return ""
+        return f"10.0.0.{ord(name[0])}"
 
 
 class VpnBase(unittest.TestCase):
@@ -56,7 +67,8 @@ class VpnBase(unittest.TestCase):
         os.environ["YTWIDGET_COOKIE_PROFILE"] = "/nonexistent"
         vpn.server_dir().mkdir(parents=True)
         for name in self.servers:
-            (vpn.server_dir() / name).write_text("[Interface]\n")
+            (vpn.server_dir() / name).write_text(
+                "[Interface]\nPrivateKey = k\n\n[Peer]\nEndpoint = 1.2.3.4:51820\n")
         self.tunnel = FakeTunnel()
         self.patches = [
             mock.patch.object(vpn, "_systemctl", self.tunnel.systemctl),
@@ -93,7 +105,7 @@ class QueueTests(VpnBase):
     def test_ensure_up_uses_head_and_symlink(self):
         name, gen = vpn.ensure_up()
         self.assertEqual(name, "a.conf")
-        self.assertEqual(os.readlink(vpn.active_link()), "a.conf")
+        self.assertEqual(self.tunnel.server(), "a.conf")
         self.assertEqual(vpn.ensure_up(), (name, gen))  # already healthy: no restart
         self.assertEqual(len(self.tunnel.restarts), 1)
 
@@ -103,7 +115,7 @@ class QueueTests(VpnBase):
         name, _ = vpn.rotate("not a bot")
         self.assertEqual(name, "b.conf")
         self.assertEqual(vpn.queue(), ["b.conf", "c.conf", "a.conf"])
-        self.assertEqual(os.readlink(vpn.active_link()), "b.conf")
+        self.assertEqual(self.tunnel.server(), "b.conf")
         self.assertNotEqual(self.tunnel.exit_ip(), ip_before)
 
     def test_dead_server_skipped(self):
@@ -149,7 +161,7 @@ class QueueTests(VpnBase):
 
     def test_symlinked_config_is_a_server(self):
         real = Path(self.tmp.name, "elsewhere.conf")
-        real.write_text("")
+        real.write_text("[Peer]\nEndpoint = 5.6.7.8:51820\n")
         (vpn.server_dir() / "d.conf").symlink_to(real)
         self.assertIn("d.conf", vpn.queue())
 
@@ -165,6 +177,47 @@ class QueueTests(VpnBase):
         self.assertEqual(vpn.queue(), ["a.conf", "b.conf", "c.conf"])
         self.tunnel.dead = {"a.conf"}
         self.assertEqual(vpn.ensure_up()[0], "b.conf")
+
+    def test_blocked_port_falls_back_and_is_remembered(self):
+        self.tunnel.blocked_ports = {1224}
+        vpn.ensure_up()
+        self.assertEqual(self.tunnel.endpoint(), ("a.conf", 88))
+        self.assertEqual(vpn.status()["port"], 88)
+        self.tunnel.restarts.clear()
+        vpn.rotate("429")
+        self.assertEqual(self.tunnel.endpoint(), ("b.conf", 88))
+        self.assertEqual(self.tunnel.restarts, ["b.conf"])  # 88 tried first
+
+    def test_all_ports_blocked_tries_next_server(self):
+        self.tunnel.blocked_ports = set(vpn.DEFAULT_PORTS)
+        with self.assertRaises(vpn.VpnError):
+            vpn.ensure_up()
+        self.assertEqual(len(self.tunnel.restarts), len(self.servers) * len(vpn.DEFAULT_PORTS))
+
+    def test_active_conf_is_private_and_source_untouched(self):
+        vpn.ensure_up()
+        self.assertEqual(vpn.active_link().stat().st_mode & 0o777, 0o600)
+        self.assertFalse(vpn.active_link().is_symlink())
+        self.assertIn(":51820", (vpn.server_dir() / "a.conf").read_text())
+        self.assertIn("Endpoint = 1.2.3.4:1224", vpn.active_link().read_text())
+        self.assertNotIn("active.conf", vpn.queue())
+
+    def test_old_symlink_is_replaced(self):
+        vpn.active_link().symlink_to("a.conf")
+        vpn.ensure_up()
+        self.assertFalse(vpn.active_link().is_symlink())
+        self.assertIn(":51820", (vpn.server_dir() / "a.conf").read_text())
+
+    def test_config_without_endpoint_is_skipped(self):
+        (vpn.server_dir() / "a.conf").write_text("[Interface]\n")
+        self.assertEqual(vpn.ensure_up()[0], "b.conf")
+
+    def test_ports_setting_and_mode_keep_each_other(self):
+        (vpn.config_dir() / "vpn.json").write_text('{"ports": [443, 0, "x"]}')
+        vpn.set_mode("always")
+        self.assertEqual(vpn.ports(), [443])
+        self.assertEqual(vpn.mode(), "always")
+        self.assertEqual(vpn.ports(88), [443])
 
     def test_mode_file(self):
         self.assertEqual(vpn.mode(), "fallback")
