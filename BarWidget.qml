@@ -79,21 +79,35 @@ BarWidget {
   // screen width, which is a bigger change to someone's desktop than a bar
   // widget has any business making uninvited.
   readonly property bool ambientDefault: String(root.setting("ambientWave", "false")) === "true"
-  // The toggle in the hover controls writes the setting back to shell.json, so
-  // the spectrum stays on (or off) across shell restarts, plugin reloads and
-  // every monitor's copy of this widget, until it is toggled again.
-  readonly property bool ambientEnabled: root.ambientDefault
+  // The toggle in the hover controls is remembered in the widget's own state
+  // file, so the spectrum stays on (or off) across shell restarts, plugin
+  // reloads and every monitor's copy of this widget until it is toggled again.
+  // (The host's settings API is not usable from a third-party bar widget; see
+  // the note on serviceFor() above.) The shell.json setting only seeds it.
+  property bool ambientEnabled: root.ambientDefault
+  readonly property string uiStatePath: Quickshell.env("HOME") + "/.local/state/ytwidget/ui.json"
 
   function setAmbient(on) {
-    var entry = { id: root.moduleName }
-    for (var key in root.settings) if (key !== "id") entry[key] = root.settings[key]
-    entry.ambientWave = !!on
-    // Applied locally first so the strip reacts on the click itself; the
-    // shell.json write then comes back through the bar as the same value.
-    root.settings = entry
-    if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
-      root.bar.shell.updateEntryInline(root.moduleName, entry)
+    root.ambientEnabled = !!on
+    uiStateFile.setText(JSON.stringify({ ambientWave: !!on }) + "\n")
   }
+
+  FileView {
+    id: uiStateFile
+    path: root.uiStatePath
+    watchChanges: true
+    atomicWrites: true
+    printErrors: false
+    // Another monitor's copy toggled it: follow.
+    onFileChanged: reload()
+    onLoaded: {
+      try {
+        var saved = JSON.parse(text() || "{}")
+        if (typeof saved.ambientWave === "boolean") root.ambientEnabled = saved.ambientWave
+      } catch (e) {}
+    }
+  }
+
   readonly property real ambientOpacity: Math.max(0.05, Math.min(1,
     (Number(root.setting("ambientOpacity", 55)) || 55) / 100))
   readonly property real ambientHeight: Math.max(0.1, Math.min(1,
