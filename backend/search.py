@@ -33,6 +33,7 @@ import threading
 import time
 from typing import Any
 
+import yt_gate
 from request_log import log_request
 
 WATCH_BASE = "https://www.youtube.com/watch?v="
@@ -271,9 +272,9 @@ def ytdlp_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
         f"ytsearch{limit}:{query}",
     ]
     try:
-        result = subprocess.run(
-            command, capture_output=True, text=True, timeout=25, check=False,
-        )
+        result = yt_gate.run(command, 25, "search_ytdlp")
+    except yt_gate.Blocked as exc:
+        raise SearchError(str(exc)) from exc
     except subprocess.TimeoutExpired as exc:
         raise SearchError("YouTube search took too long") from exc
     if result.returncode != 0 and not result.stdout.strip():
@@ -296,6 +297,52 @@ def ytdlp_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
     return items
 
 
+# ----------------------------------------------------------------- result cache
+
+SEARCH_CACHE_SECONDS = 6 * 3600
+SEARCH_CACHE_MAX = 200
+
+
+def _cache_path():
+    import os
+    from pathlib import Path
+    state = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+    return state / "ytwidget" / "search_cache.json"
+
+
+def _cache_load() -> dict:
+    try:
+        data = json.loads(_cache_path().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _cache_get(query: str, limit: int):
+    entry = _cache_load().get(f"{limit}:{query.lower()}")
+    if entry and time.time() - entry.get("ts", 0) < SEARCH_CACHE_SECONDS:
+        return entry.get("items")
+    return None
+
+
+def _cache_put(query: str, limit: int, items: list) -> None:
+    if not items:
+        return
+    data = _cache_load()
+    data[f"{limit}:{query.lower()}"] = {"ts": time.time(), "items": items}
+    if len(data) > SEARCH_CACHE_MAX:
+        for key in sorted(data, key=lambda k: data[k].get("ts", 0))[:len(data) - SEARCH_CACHE_MAX]:
+            del data[key]
+    try:
+        path = _cache_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass
+
+
 # ----------------------------------------------------------------- dispatch
 
 def search(query: str, limit: int = 20) -> list[dict[str, Any]]:
@@ -304,6 +351,18 @@ def search(query: str, limit: int = 20) -> list[dict[str, Any]]:
         return []
     limit = max(1, min(int(limit or 20), 50))
 
+    cached = _cache_get(query, limit)
+    if cached is not None:
+        return cached
+    info = yt_gate.status()
+    if info["blocked"]:
+        raise SearchError(yt_gate._message(info["seconds_left"]))
+    items = _search_uncached(query, limit)
+    _cache_put(query, limit, items)
+    return items
+
+
+def _search_uncached(query: str, limit: int) -> list[dict[str, Any]]:
     if _fast_path_suspended():
         log_request("search", "", True, 0, "yt-dlp")
         return ytdlp_search(query, limit)

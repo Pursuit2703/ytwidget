@@ -25,6 +25,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+import yt_gate
+
 DEFAULT_SUB_LANG = "en"
 DEFAULT_MAX_HEIGHT = 1080
 # Stable Wayland app-id so compositor rules can target this window. mpv's
@@ -316,8 +318,9 @@ class VideoResolver:
             "--", watch_url(video_id),
         ]
         try:
-            result = subprocess.run(command, capture_output=True, text=True,
-                                    timeout=90, check=False)
+            result = yt_gate.run(command, 90, "video_meta", video_id)
+        except yt_gate.Blocked as exc:
+            raise VideoError(str(exc)) from exc
         except subprocess.TimeoutExpired as exc:
             raise VideoError("YouTube took too long to answer") from exc
         if result.returncode != 0 or not result.stdout.strip():

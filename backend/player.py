@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 import audio_cache
+import yt_gate
 from play_history import video_id as item_video_id
-from request_log import log_request
 from spectrum import SpectrumTap
 
 
@@ -464,6 +464,9 @@ class StreamResolver:
             # still-running one. Never launches a second yt-dlp in parallel.
 
     def prefetch(self, video_id: str) -> None:
+        if not yt_gate.healthy():
+            return
+
         def worker() -> None:
             try:
                 self.resolve(video_id, kind="prefetch")
@@ -472,16 +475,9 @@ class StreamResolver:
         threading.Thread(target=worker, daemon=True).start()
 
     def _yt_dlp(self, video_id: str, kind: str = "resolve") -> str:
-        started = time.time()
-        try:
-            url = self._run_yt_dlp(video_id)
-        except Exception as exc:
-            log_request(kind, video_id, False, int((time.time() - started) * 1000), str(exc))
-            raise
-        log_request(kind, video_id, True, int((time.time() - started) * 1000))
-        return url
+        return self._run_yt_dlp(video_id, kind)
 
-    def _run_yt_dlp(self, video_id: str) -> str:
+    def _run_yt_dlp(self, video_id: str, kind: str = "resolve") -> str:
         binary = shutil.which("yt-dlp")
         if not binary:
             raise PlayerError("yt-dlp is not installed")
@@ -502,13 +498,9 @@ class StreamResolver:
         ]
         warm = yt_dlp_cache_warm()
         try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=resolve_timeout(warm),
-                check=False,
-            )
+            result = yt_gate.run(command, resolve_timeout(warm), kind, video_id)
+        except yt_gate.Blocked as exc:
+            raise PlayerError(str(exc)) from exc
         except subprocess.TimeoutExpired as exc:
             if warm:
                 raise PlayerError(

@@ -15,6 +15,7 @@ import subprocess
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import yt_gate
 from search import _ytdlp_normalize, thumbnail_url, watch_url
 
 # A queue this long already covers any sane playlist, and the state broadcast
@@ -105,10 +106,9 @@ def _run_ytdlp(args: list[str], timeout: int) -> str:
     if not binary:
         raise UrlError("yt-dlp is not installed")
     try:
-        result = subprocess.run(
-            [binary] + args, capture_output=True, text=True,
-            timeout=timeout, check=False,
-        )
+        result = yt_gate.run([binary] + args, timeout, "link")
+    except yt_gate.Blocked as exc:
+        raise UrlError(str(exc)) from exc
     except subprocess.TimeoutExpired as exc:
         raise UrlError("YouTube took too long to answer that link") from exc
     if result.returncode != 0 and not result.stdout.strip():
