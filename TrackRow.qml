@@ -6,6 +6,10 @@ import qs.Ui
 
 import "Api.js" as Api
 
+// One track in any list. Quiet by default: cover, title, channel and length.
+// Pointing at the row shows Play and a ⋯ menu (queue, playlist, YouTube);
+// right-click opens the same menu. The track that is playing gets moving bars
+// over its cover and an accent title, so it can be found at a glance.
 Rectangle {
   id: root
 
@@ -13,13 +17,20 @@ Rectangle {
   property var service: null
   property bool highlighted: false
   property bool compact: false
-  property string playGlyph: "󰐊"
-  property string queueGlyph: "󰐕"
-  property string playlistGlyph: "󱁐"
+  property string playGlyph: "\u{f040a}"
+  // f0415 (+) means "add to queue", f0156 (×) means "remove from queue";
+  // the menu wording follows it.
+  property string queueGlyph: "\u{f0415}"
+  property string playlistGlyph: "\u{f0412}"
   property color fg: Color.foreground
   property color fgDim: Qt.darker(Color.foreground, 1.6)
   property color rowFill: Qt.rgba(fg.r, fg.g, fg.b, 0.05)
   property color rowFillActive: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.16)
+
+  readonly property bool removes: queueGlyph === "\u{f0156}"
+  readonly property bool isCurrent: !!(service && service.track && item
+    && item.videoId && service.track.videoId === item.videoId)
+  readonly property bool showActions: hover.hovered || menu.opened
 
   signal playRequested()
   signal queueRequested()
@@ -40,19 +51,73 @@ Rectangle {
     })
   }
 
-  height: compact ? Style.space(38) : Style.space(46)
-  radius: Style.cornerRadius
-  color: highlighted ? rowFillActive : (rowHover.containsMouse ? rowFill : "transparent")
+  function openMenu(x, y) {
+    menu.pickingPlaylist = false
+    menu.x = Math.min(x, root.width - menu.width)
+    menu.y = y
+    menu.open()
+  }
+
+  height: compact ? Style.space(40) : Style.space(48)
+  radius: Style.space(10)
+  color: highlighted || isCurrent ? rowFillActive : (showActions ? rowFill : "transparent")
+
+  HoverHandler { id: hover }
+
+  component MenuRow: Rectangle {
+    id: menuRow
+    property string glyph: ""
+    property string label: ""
+    property color tint: Color.popups.text
+    signal picked()
+    Layout.fillWidth: true
+    implicitHeight: Style.space(32)
+    radius: Style.space(8)
+    color: menuRowArea.containsMouse
+      ? Qt.rgba(Color.popups.text.r, Color.popups.text.g, Color.popups.text.b, 0.08)
+      : "transparent"
+    Row {
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(10)
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(10)
+      Text {
+        width: Style.space(16)
+        horizontalAlignment: Text.AlignHCenter
+        anchors.verticalCenter: parent.verticalCenter
+        text: menuRow.glyph
+        color: menuRow.tint
+        font.family: Style.font.family
+        font.pixelSize: Style.font.body + 1
+      }
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        text: menuRow.label
+        color: menuRow.tint
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption + 1
+      }
+    }
+    MouseArea {
+      id: menuRowArea
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: menuRow.picked()
+    }
+  }
+
 
   RowLayout {
     anchors.fill: parent
-    anchors.margins: Style.space(6)
-    spacing: Style.space(8)
+    anchors.leftMargin: Style.space(6)
+    anchors.rightMargin: Style.space(8)
+    spacing: Style.space(10)
 
     Rectangle {
-      Layout.preferredWidth: root.compact ? Style.space(26) : Style.space(34)
-      Layout.preferredHeight: root.compact ? Style.space(26) : Style.space(34)
-      radius: Style.cornerRadius
+      Layout.preferredWidth: root.compact ? Style.space(28) : Style.space(36)
+      Layout.preferredHeight: root.compact ? Style.space(28) : Style.space(36)
+      radius: Style.space(6)
       color: root.rowFill
       clip: true
       Image {
@@ -62,26 +127,54 @@ Rectangle {
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
       }
+      // Now-playing bars: three bars that bob while the track plays and rest
+      // when it is paused.
+      Rectangle {
+        anchors.fill: parent
+        visible: root.isCurrent
+        color: Qt.rgba(0, 0, 0, 0.55)
+        Row {
+          anchors.centerIn: parent
+          spacing: Style.space(2)
+          Repeater {
+            model: 3
+            Rectangle {
+              id: nowBar
+              required property int index
+              width: Style.space(3)
+              anchors.bottom: parent.bottom
+              radius: 1
+              color: Color.accent
+              property real level: [0.6, 1.0, 0.45][index]
+              height: Style.space(root.compact ? 14 : 16) * level
+              SequentialAnimation on level {
+                running: root.isCurrent && !!(root.service && root.service.effectivePlaying)
+                loops: Animation.Infinite
+                NumberAnimation { to: 0.3; duration: 260 + nowBar.index * 90; easing.type: Easing.InOutSine }
+                NumberAnimation { to: 1.0; duration: 300 + nowBar.index * 70; easing.type: Easing.InOutSine }
+              }
+            }
+          }
+          height: Style.space(root.compact ? 14 : 16)
+        }
+      }
     }
 
     ColumnLayout {
       Layout.fillWidth: true
-      spacing: Style.space(1)
+      spacing: Style.space(2)
       Label {
         text: root.item ? (root.item.name || "Untitled") : ""
-        color: root.fg
+        color: root.isCurrent ? Color.accent : root.fg
         font.family: Style.font.family
+        font.bold: root.isCurrent
         font.pixelSize: root.compact ? Style.font.caption : Style.font.body
         elide: Text.ElideRight
         Layout.fillWidth: true
       }
       Label {
-        visible: !root.compact
-        text: {
-          if (!root.item) return ""
-          var d = root.item.live ? "LIVE" : Api.formatTime(root.item.durationMs || 0)
-          return (root.item.subtitle || "") + "  ·  " + d
-        }
+        visible: !root.compact && text !== ""
+        text: root.item ? (root.item.subtitle || "") : ""
         color: root.fgDim
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
@@ -91,169 +184,182 @@ Rectangle {
     }
 
     FlatButton {
+      visible: root.showActions
       iconText: root.playGlyph
+      foreground: root.fg
       buttonSize: root.compact ? Style.space(28) : Style.space(32)
-      tooltipText: "Play now"
+      tooltipText: "Play"
       onClicked: root.playRequested()
     }
     FlatButton {
-      iconText: root.queueGlyph
+      id: moreButton
+      visible: root.showActions
+      iconText: "\u{f01d8}"
+      foreground: root.fg
+      selected: menu.opened
       buttonSize: root.compact ? Style.space(28) : Style.space(32)
-      tooltipText: "Queue"
-      onClicked: root.queueRequested()
+      tooltipText: "More"
+      onClicked: {
+        if (menu.opened) { menu.close(); return }
+        var p = moreButton.mapToItem(root, 0, moreButton.height + Style.space(4))
+        root.openMenu(moreButton.x + moreButton.width - menu.width, p.y)
+      }
     }
-    FlatButton {
-      id: playlistButton
-      visible: !!root.service
-      iconText: root.playlistGlyph
-      buttonSize: root.compact ? Style.space(28) : Style.space(32)
-      tooltipText: "Add to playlist"
-      onClicked: playlistPopup.opened ? playlistPopup.close() : playlistPopup.open()
+    Label {
+      visible: !root.showActions
+      Layout.preferredWidth: Style.space(44)
+      horizontalAlignment: Text.AlignRight
+      text: root.item ? (root.item.live ? "Live" : Api.formatTime(root.item.durationMs || 0)) : ""
+      color: root.fgDim
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+    }
+  }
 
-      Popup {
-        id: playlistPopup
-        x: playlistButton.width - width
-        y: playlistButton.height + Style.space(4)
-        width: Style.space(230)
-        padding: Style.space(8)
-        focus: true
+  Popup {
+    id: menu
+    width: Style.space(230)
+    padding: Style.space(6)
+    focus: true
 
-        property string newPlaylistName: ""
+    property bool pickingPlaylist: false
+    property string newPlaylistName: ""
 
-        onOpened: {
-          playlistPopup.newPlaylistName = ""
-          if (root.service) root.service.listPlaylists(function() {})
+    onOpened: {
+      menu.newPlaylistName = ""
+      if (root.service) root.service.listPlaylists(function() {})
+    }
+
+    background: Rectangle {
+      color: Color.popups.background
+      radius: Style.space(12)
+      border.width: Math.max(1, Style.normalBorderWidth)
+      border.color: Color.popups.border
+    }
+
+    contentItem: ColumnLayout {
+      spacing: Style.space(2)
+
+      // ---- actions
+      MenuRow {
+        visible: !menu.pickingPlaylist
+        glyph: root.playGlyph
+        label: "Play"
+        onPicked: { menu.close(); root.playRequested() }
+      }
+      MenuRow {
+        visible: !menu.pickingPlaylist && !root.removes
+        glyph: "\u{f0415}"
+        label: "Add to queue"
+        onPicked: { menu.close(); root.queueRequested() }
+      }
+      MenuRow {
+        visible: !menu.pickingPlaylist && !!root.service
+        glyph: root.playlistGlyph
+        label: "Add to playlist"
+        onPicked: menu.pickingPlaylist = true
+      }
+      MenuRow {
+        visible: !menu.pickingPlaylist && !!(root.item && root.item.videoId)
+        glyph: "\u{f03cc}"
+        label: "Open on YouTube"
+        onPicked: {
+          menu.close()
+          Qt.openUrlExternally("https://www.youtube.com/watch?v=" + root.item.videoId)
+        }
+      }
+      MenuRow {
+        visible: !menu.pickingPlaylist && root.removes
+        glyph: "\u{f0156}"
+        label: "Remove from queue"
+        tint: Color.urgent
+        onPicked: { menu.close(); root.queueRequested() }
+      }
+
+      // ---- playlist picker
+      MenuRow {
+        visible: menu.pickingPlaylist
+        glyph: "\u{f004d}"
+        label: "Add to playlist"
+        onPicked: menu.pickingPlaylist = false
+      }
+      Item {
+        visible: menu.pickingPlaylist
+        Layout.fillWidth: true
+        Layout.preferredHeight: Math.max(Style.space(32),
+          Math.min(root.service ? root.service.playlists.length : 0, 5) * Style.space(34))
+
+        Label {
+          anchors.centerIn: parent
+          visible: !root.service || root.service.playlists.length === 0
+          text: "No playlists yet"
+          color: Qt.darker(Color.popups.text, 1.6)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
         }
 
-        background: Rectangle {
-          color: Color.popups.background
-          radius: Style.cornerRadius
-          border.width: Math.max(1, Style.normalBorderWidth)
-          border.color: Color.popups.border
+        ListView {
+          anchors.fill: parent
+          clip: true
+          spacing: Style.space(2)
+          model: root.service ? root.service.playlists : []
+          ScrollBar.vertical: ScrollBar {}
+
+          delegate: MenuRow {
+            width: ListView.view.width
+            glyph: root.playlistGlyph
+            label: modelData.name
+            onPicked: {
+              root.addCurrentItemToPlaylist(modelData.id)
+              menu.close()
+            }
+          }
         }
+      }
+      RowLayout {
+        visible: menu.pickingPlaylist
+        Layout.fillWidth: true
+        Layout.topMargin: Style.space(4)
+        spacing: Style.space(6)
 
-        contentItem: ColumnLayout {
-          spacing: Style.space(6)
-
-          Label {
-            text: "Add to playlist"
-            color: Color.popups.text
-            font.bold: true
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
+        TextField {
+          Layout.fillWidth: true
+          placeholderText: "New playlist…"
+          text: menu.newPlaylistName
+          onTextChanged: menu.newPlaylistName = text
+          onAccepted: {
+            root.createPlaylistWithCurrentItem(menu.newPlaylistName)
+            menu.close()
           }
-
-          Item {
-            Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(Style.space(30),
-              Math.min(root.service ? root.service.playlists.length : 0, 5) * Style.space(30))
-
-            Label {
-              anchors.centerIn: parent
-              visible: !root.service || root.service.playlists.length === 0
-              text: "No playlists yet"
-              color: Qt.darker(Color.popups.text, 1.6)
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
-            }
-
-            ListView {
-              anchors.fill: parent
-              clip: true
-              spacing: Style.space(2)
-              model: root.service ? root.service.playlists : []
-              ScrollBar.vertical: ScrollBar {}
-
-              delegate: Rectangle {
-                width: ListView.view.width
-                height: Style.space(28)
-                radius: Style.cornerRadius
-                color: playlistRowHover.containsMouse
-                  ? Qt.rgba(Color.popups.text.r, Color.popups.text.g, Color.popups.text.b, 0.08)
-                  : "transparent"
-
-                Label {
-                  anchors.left: parent.left
-                  anchors.right: playlistCount.left
-                  anchors.verticalCenter: parent.verticalCenter
-                  anchors.leftMargin: Style.space(6)
-                  anchors.rightMargin: Style.space(4)
-                  text: modelData.name
-                  color: Color.popups.text
-                  font.family: Style.font.family
-                  font.pixelSize: Style.font.caption
-                  elide: Text.ElideRight
-                }
-                Label {
-                  id: playlistCount
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                  anchors.rightMargin: Style.space(6)
-                  text: modelData.count
-                  color: Qt.darker(Color.popups.text, 1.6)
-                  font.family: Style.font.family
-                  font.pixelSize: Style.font.caption
-                }
-                MouseArea {
-                  id: playlistRowHover
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: {
-                    root.addCurrentItemToPlaylist(modelData.id)
-                    playlistPopup.close()
-                  }
-                }
-              }
-            }
-          }
-
-          PanelSeparator { Layout.fillWidth: true }
-
-          RowLayout {
-            Layout.fillWidth: true
-            spacing: Style.space(6)
-
-            TextField {
-              Layout.fillWidth: true
-              placeholderText: "New playlist…"
-              text: playlistPopup.newPlaylistName
-              onTextChanged: playlistPopup.newPlaylistName = text
-              onAccepted: {
-                root.createPlaylistWithCurrentItem(playlistPopup.newPlaylistName)
-                playlistPopup.close()
-              }
-            }
-            Chicklet {
-              iconText: root.playlistGlyph
-              chickletSize: Style.space(26)
-              tooltipText: "Create & add"
-              enabled: playlistPopup.newPlaylistName.trim() !== ""
-              onClicked: {
-                root.createPlaylistWithCurrentItem(playlistPopup.newPlaylistName)
-                playlistPopup.close()
-              }
-            }
+        }
+        FlatButton {
+          iconText: "\u{f0415}"
+          buttonSize: Style.space(30)
+          foreground: Color.popups.text
+          tooltipText: "Create and add"
+          enabled: menu.newPlaylistName.trim() !== ""
+          onClicked: {
+            root.createPlaylistWithCurrentItem(menu.newPlaylistName)
+            menu.close()
           }
         }
       }
     }
   }
 
-  // Clicking the row body (thumbnail/title) plays it. This sits BELOW the
-  // content: `z` only orders an item against its own siblings, so putting
-  // z:1 on the buttons could never lift them above this area — it is a
-  // sibling of their parent RowLayout, not of the buttons. On top, it
-  // swallowed every click, which made the queue (+) button play instead.
-  // Underneath, the buttons get their clicks and the inert thumbnail/title
-  // let clicks fall through to here.
+  // Clicking the row body plays it; right-click opens the menu. This sits
+  // BELOW the content: `z` only orders an item against its own siblings, so
+  // the buttons, being inside the RowLayout, are always above it and keep
+  // their own clicks.
   MouseArea {
-    id: rowHover
+    id: rowArea
     z: -1
     anchors.fill: parent
-    hoverEnabled: true
     cursorShape: Qt.PointingHandCursor
-    acceptedButtons: Qt.LeftButton
-    onClicked: root.playRequested()
+    acceptedButtons: Qt.LeftButton | Qt.RightButton
+    onClicked: function(mouse) {
+      if (mouse.button === Qt.RightButton) root.openMenu(mouse.x, mouse.y)
+      else root.playRequested()
+    }
   }
 }

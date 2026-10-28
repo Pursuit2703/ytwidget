@@ -33,7 +33,7 @@ Item {
   readonly property string iconRepeatOne: "󰑘"
   readonly property string iconClose: "󰅖"
   readonly property string iconQueueAdd: "󰐕"
-  readonly property string iconPlaylistAdd: "󱁐"
+  readonly property string iconPlaylistAdd: "\u{f0412}"
   readonly property string iconSearch: "󰍉"
   readonly property string iconNote: "󰝚"
 
@@ -105,14 +105,18 @@ Item {
     })
   }
 
-  function pageDurationText() {
-    if (!page) return ""
+  // "14 songs · 1 h 12 min" for any list of tracks.
+  function lengthText(items) {
+    if (!items) return ""
     var ms = 0
-    for (var i = 0; i < page.items.length; i++) ms += Number(page.items[i].durationMs || 0)
+    for (var i = 0; i < items.length; i++) ms += Number(items[i].durationMs || 0)
     var minutes = Math.round(ms / 60000)
     var h = Math.floor(minutes / 60), m = minutes % 60
-    return page.items.length + " tracks" + (minutes > 0 ? " · " + (h > 0 ? h + " h " : "") + m + " min" : "")
+    return items.length + (items.length === 1 ? " song" : " songs")
+      + (minutes > 0 ? " · " + (h > 0 ? h + " h " : "") + m + " min" : "")
   }
+
+  function pageDurationText() { return page ? lengthText(page.items) : "" }
 
   function playPage(shuffle) {
     if (!page || !service) return
@@ -152,10 +156,10 @@ Item {
       var t = root.history[i]
       var at = Number(t.playedAt || 0) * 1000
       var label
-      if (!at) label = "EARLIER"
-      else if (at >= today.getTime()) label = "TODAY"
-      else if (at >= today.getTime() - dayMs) label = "YESTERDAY"
-      else label = Qt.formatDate(new Date(at), "d MMMM").toUpperCase()
+      if (!at) label = "Earlier"
+      else if (at >= today.getTime()) label = "Today"
+      else if (at >= today.getTime() - dayMs) label = "Yesterday"
+      else label = Qt.formatDate(new Date(at), "d MMMM")
       if (label !== lastDay) { rows.push({ header: true, label: label }); lastDay = label }
       rows.push({ header: false, track: t, when: at ? Qt.formatTime(new Date(at), "HH:mm") : "" })
     }
@@ -483,16 +487,135 @@ Item {
           // ===== search
           ListView {
             anchors.fill: parent
+            id: searchList
             visible: root.page === null && root.activeTab === "search"
             model: root.searchResults
             clip: true
             spacing: Style.space(2)
             ScrollBar.vertical: ScrollBar {}
 
+            readonly property bool startPage: root.searchResults.length === 0
+              && String(root.searchText || "").trim() === ""
+              && !root.searching && !root.pageBusy
+              && root.pageError === "" && root.searchError === ""
+
+            // Before anything is typed: something useful instead of an
+            // empty page repeating the placeholder.
+            ColumnLayout {
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.top: parent.top
+              anchors.topMargin: Style.space(8)
+              visible: searchList.startPage
+              spacing: Style.space(12)
+
+              SectionTitle { Layout.fillWidth: true; visible: root.history.length > 0; title: "Jump back in" }
+              RowLayout {
+                Layout.fillWidth: true
+                visible: root.history.length > 0
+                spacing: Style.space(10)
+                Repeater {
+                  model: root.history.slice(0, 3)
+                  delegate: Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    implicitHeight: jumpCard.implicitHeight + Style.space(20)
+                    radius: Style.space(14)
+                    color: jumpHover.hovered ? root.rowFill : root.cardFill
+                    HoverHandler { id: jumpHover }
+                    ColumnLayout {
+                      id: jumpCard
+                      anchors.fill: parent
+                      anchors.margins: Style.space(10)
+                      spacing: Style.space(8)
+                      Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Style.space(96)
+                        radius: Style.space(10)
+                        color: root.rowFill
+                        clip: true
+                        Image {
+                          anchors.fill: parent
+                          source: modelData.thumbnail || ""
+                          fillMode: Image.PreserveAspectCrop
+                          asynchronous: true
+                        }
+                        FlatButton {
+                          anchors.right: parent.right
+                          anchors.bottom: parent.bottom
+                          anchors.margins: Style.space(6)
+                          primary: true
+                          buttonSize: Style.space(30)
+                          iconText: root.iconPlay
+                          tooltipText: "Play"
+                          onClicked: if (root.service) root.service.playNow(modelData)
+                        }
+                      }
+                      Label {
+                        Layout.fillWidth: true
+                        text: modelData.name || ""
+                        color: root.fg
+                        font.family: Style.font.family
+                        font.pixelSize: Style.font.caption
+                        elide: Text.ElideRight
+                      }
+                    }
+                  }
+                }
+              }
+
+              SectionTitle {
+                Layout.fillWidth: true
+                Layout.topMargin: Style.space(6)
+                visible: !!root.service && root.service.playlists.length > 0
+                title: "Your playlists"
+              }
+              Flow {
+                Layout.fillWidth: true
+                visible: !!root.service && root.service.playlists.length > 0
+                spacing: Style.space(8)
+                Repeater {
+                  model: root.service ? root.service.playlists : []
+                  delegate: Rectangle {
+                    width: chipText.implicitWidth + Style.space(28)
+                    height: Style.space(32)
+                    radius: height / 2
+                    color: chipHover.hovered ? root.rowFillActive : root.rowFill
+                    HoverHandler { id: chipHover }
+                    Text {
+                      id: chipText
+                      anchors.centerIn: parent
+                      text: modelData.name
+                      color: root.fg
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                    }
+                    MouseArea {
+                      anchors.fill: parent
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: root.openPlaylist(modelData.id)
+                    }
+                  }
+                }
+              }
+
+              Label {
+                Layout.fillWidth: true
+                Layout.topMargin: Style.space(4)
+                text: root.history.length > 0
+                  ? "Tip: paste a YouTube playlist link above to open it here."
+                  : "Search YouTube, or paste a video or playlist link"
+                color: root.fgDim
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+              }
+            }
+
             Label {
               anchors.centerIn: parent
-              visible: root.searchResults.length === 0
-              text: root.pageError || root.searchError || (root.searching || root.pageBusy ? "Searching…" : "Search YouTube, or paste a video or playlist link")
+              visible: root.searchResults.length === 0 && !searchList.startPage
+              text: root.pageError || root.searchError || (root.searching || root.pageBusy ? "Searching…" : "No results")
               color: root.pageError !== "" || root.searchError !== "" ? Color.urgent : root.fgDim
               font.family: Style.font.family
             }
@@ -520,13 +643,10 @@ Item {
 
             RowLayout {
               Layout.fillWidth: true
-              Label {
+              SectionTitle {
                 Layout.fillWidth: true
-                text: root.service ? "UP NEXT · " + root.service.queue.length + " TRACKS" : ""
-                color: root.fgDim
-                font.family: Style.font.family
-                font.pixelSize: Style.font.caption
-                font.letterSpacing: 1.4
+                title: "Up next"
+                detail: root.service ? root.lengthText(root.service.queue) : ""
               }
               Button {
                 visible: !!root.service && root.service.queue.length > 0
@@ -581,14 +701,7 @@ Item {
               RowLayout {
                 Layout.fillWidth: true
                 visible: root.history.length > 0
-                Label {
-                  Layout.fillWidth: true
-                  text: "RECENTLY PLAYED"
-                  color: root.fgDim
-                  font.family: Style.font.family
-                  font.pixelSize: Style.font.caption
-                  font.letterSpacing: 1.4
-                }
+                SectionTitle { Layout.fillWidth: true; title: "Recently played" }
                 Button { text: "See all"; onClicked: root.activeTab = "recent" }
               }
 
@@ -645,117 +758,43 @@ Item {
                 }
               }
 
-              Label {
-                text: "PLAYLISTS"
-                color: root.fgDim
-                font.family: Style.font.family
-                font.pixelSize: Style.font.caption
-                font.letterSpacing: 1.4
-              }
+              SectionTitle { Layout.fillWidth: true; Layout.topMargin: Style.space(6); title: "Playlists" }
 
-              // Most played: computed from the history's play counts.
-              Rectangle {
+              // Smart lists first, computed from the history, then saved ones.
+              // Every row has the same shape: tile, name, "N songs · length".
+              ListRow {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Style.space(54)
-                radius: Style.space(12)
                 visible: root.mostPlayed().length > 0
-                color: mpHover.containsMouse ? root.rowFill : "transparent"
-                RowLayout {
-                  anchors.fill: parent
-                  anchors.leftMargin: Style.space(8)
-                  anchors.rightMargin: Style.space(8)
-                  spacing: Style.space(14)
-                  Rectangle {
-                    Layout.preferredWidth: Style.space(40)
-                    Layout.preferredHeight: Style.space(40)
-                    radius: Style.space(10)
-                    color: root.rowFillActive
-                    Text {
-                      anchors.fill: parent
-                      horizontalAlignment: Text.AlignHCenter
-                      verticalAlignment: Text.AlignVCenter
-                      text: "\u{f04ce}"
-                      color: root.accent
-                      font.family: Style.font.family
-                      font.pixelSize: Style.font.iconLarge
-                    }
-                  }
-                  ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Style.space(2)
-                    Label { text: "Most played"; color: root.fg; font.family: Style.font.family; font.pixelSize: Style.font.body }
-                    Label { text: "Smart · from your play counts"; color: root.fgDim; font.family: Style.font.family; font.pixelSize: Style.font.caption }
-                  }
-                  Label { text: root.mostPlayed().length + ""; color: root.fgDim; font.family: Style.font.family; font.pixelSize: Style.font.caption }
-                }
-                MouseArea {
-                  id: mpHover
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.openItems("Most played", root.mostPlayed())
-                }
+                glyph: "\u{f04ce}"
+                title: "Most played"
+                detail: "Your top tracks · " + root.lengthText(root.mostPlayed())
+                onOpened: root.openItems("Most played", root.mostPlayed())
+                onPlayed: if (root.service) root.service.playQueueFrom(root.mostPlayed(), 0)
+              }
+              ListRow {
+                Layout.fillWidth: true
+                visible: root.history.length > 0
+                glyph: "\u{f02da}"
+                title: "Recently played"
+                detail: root.lengthText(root.history.slice(0, 25))
+                onOpened: root.openItems("Recently played", root.history.slice(0, 25))
+                onPlayed: if (root.service) root.service.playQueueFrom(root.history.slice(0, 25), 0)
               }
 
               Repeater {
                 model: root.service ? root.service.playlists : []
-                delegate: Rectangle {
+                delegate: ListRow {
                   Layout.fillWidth: true
-                  Layout.preferredHeight: Style.space(54)
-                  radius: Style.space(12)
-                  color: plHover.containsMouse ? root.rowFill : "transparent"
-                  RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: Style.space(8)
-                    anchors.rightMargin: Style.space(8)
-                    spacing: Style.space(14)
-                    Rectangle {
-                      Layout.preferredWidth: Style.space(40)
-                      Layout.preferredHeight: Style.space(40)
-                      radius: Style.space(9)
-                      color: root.rowFill
-                      clip: true
-                      Grid {
-                        anchors.fill: parent
-                        columns: 2
-                        Repeater {
-                          model: modelData.covers || []
-                          delegate: Image {
-                            width: parent.width / 2
-                            height: parent.height / 2
-                            source: modelData
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                          }
-                        }
-                      }
-                    }
-                    ColumnLayout {
-                      Layout.fillWidth: true
-                      spacing: Style.space(2)
-                      Label { Layout.fillWidth: true; text: modelData.name; color: root.fg; font.family: Style.font.family; font.pixelSize: Style.font.body; elide: Text.ElideRight }
-                      Label { text: modelData.count + " tracks"; color: root.fgDim; font.family: Style.font.family; font.pixelSize: Style.font.caption }
-                    }
-                    FlatButton {
-                      iconText: root.iconPlay
-                      tooltipText: "Play"
-                      foreground: root.accent
-                      onClicked: {
-                        if (!root.service) return
-                        root.service.getPlaylist(modelData.id, function(ok, result) {
-                          if (ok && result && result.items && result.items.length > 0)
-                            root.service.playQueueFrom(result.items, 0)
-                        })
-                      }
-                    }
-                  }
-                  MouseArea {
-                    id: plHover
-                    anchors.fill: parent
-                    z: -1
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.openPlaylist(modelData.id)
+                  covers: modelData.covers || []
+                  title: modelData.name
+                  detail: modelData.count + (modelData.count === 1 ? " song" : " songs")
+                  onOpened: root.openPlaylist(modelData.id)
+                  onPlayed: {
+                    if (!root.service) return
+                    root.service.getPlaylist(modelData.id, function(ok, result) {
+                      if (ok && result && result.items && result.items.length > 0)
+                        root.service.playQueueFrom(result.items, 0)
+                    })
                   }
                 }
               }
@@ -818,14 +857,9 @@ Item {
 
             Component {
               id: headerRow
-              Label {
-                height: Style.space(30)
-                verticalAlignment: Text.AlignVCenter
-                text: rowData.label
-                color: root.fgDim
-                font.family: Style.font.family
-                font.pixelSize: Style.font.caption
-                font.letterSpacing: 1.4
+              SectionTitle {
+                height: Style.space(36)
+                title: rowData.label
               }
             }
             Component {
@@ -1088,7 +1122,7 @@ Item {
             }
             FlatButton {
               visible: !parent.parent.tight
-              iconText: "\u{f04c3}"
+              iconText: "\u{f066a}"
               selected: root.eqExpanded
               foreground: root.fg
               tooltipText: root.eqExpanded ? "Hide equaliser" : "Show equaliser"

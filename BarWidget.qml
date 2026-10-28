@@ -1157,11 +1157,10 @@ BarWidget {
         height: Style.space(26)
         Text {
           Layout.fillWidth: true
-          text: root.hasTrack ? (root.playing ? "NOW PLAYING" : "PAUSED") : "YT WIDGET"
+          text: root.hasTrack ? (root.playing ? "Now playing" : "Paused") : "Music"
           color: Qt.darker(root.bar.foreground, 1.3)
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
-          font.letterSpacing: 1.4
         }
         FlatButton {
           buttonSize: Style.space(26)
@@ -1344,7 +1343,7 @@ BarWidget {
         }
         FlatButton {
           buttonSize: Style.space(30)
-          iconText: "\u{f1970}"
+          iconText: "\u{f147d}"
           selected: root.ambientEnabled
           foreground: root.bar.foreground
           tooltipText: root.ambientEnabled ? "Hide the spectrum across the bar" : "Show the spectrum across the bar"
@@ -1352,7 +1351,7 @@ BarWidget {
         }
         FlatButton {
           buttonSize: Style.space(30)
-          iconText: "\u{f04c3}"
+          iconText: "\u{f066a}"
           selected: root.miniEqOpen
           foreground: root.bar.foreground
           tooltipText: root.miniEqOpen ? "Hide equaliser" : "Show equaliser"
