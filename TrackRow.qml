@@ -90,23 +90,23 @@ Rectangle {
       }
     }
 
-    Chicklet {
+    FlatButton {
       iconText: root.playGlyph
-      chickletSize: root.compact ? Style.space(26) : Style.space(32)
+      buttonSize: root.compact ? Style.space(28) : Style.space(32)
       tooltipText: "Play now"
       onClicked: root.playRequested()
     }
-    Chicklet {
+    FlatButton {
       iconText: root.queueGlyph
-      chickletSize: root.compact ? Style.space(26) : Style.space(32)
+      buttonSize: root.compact ? Style.space(28) : Style.space(32)
       tooltipText: "Queue"
       onClicked: root.queueRequested()
     }
-    Chicklet {
+    FlatButton {
       id: playlistButton
       visible: !!root.service
       iconText: root.playlistGlyph
-      chickletSize: root.compact ? Style.space(26) : Style.space(32)
+      buttonSize: root.compact ? Style.space(28) : Style.space(32)
       tooltipText: "Add to playlist"
       onClicked: playlistPopup.opened ? playlistPopup.close() : playlistPopup.open()
 
