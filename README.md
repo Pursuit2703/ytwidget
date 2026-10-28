@@ -159,3 +159,11 @@ rm -rf ~/.config/omarchy/plugins/omar.ytwidget
 ## License
 
 MIT
+
+
+## Player UI (mini card and full player)
+
+- Mini card: fixed size, blurred cover header, Up next / Recent / Lists pane, pasted playlist links preview in the pane, compact/wide chip switch next to the search field.
+- Full player: Search / Queue / Playlists / Recent tabs. A pasted playlist link opens a playlist page (Play all, Shuffle, Add to queue, Save) and nothing is saved or played until you press a button. Recent is grouped by day with Play all and Clear history. Most played is ranked from the `plays` counter in `play-history.json`.
+- Backend commands added: `preview_playlist` (resolve a link without saving), `clear_history`. History entries now carry `playedAt` and `plays`; playlists list `covers`.
+- The daemon runs from `~/.local/lib/ytwidget`, a copy of `backend/`. After changing anything in `backend/`, run `scripts/setup.sh` and restart the daemon, or the UI will talk to the old code.

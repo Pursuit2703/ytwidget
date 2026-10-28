@@ -42,14 +42,14 @@ Item {
   property var searchResults: []
   property bool searching: false
   property string searchError: ""
-  property var activePlaylistId: ""
-  property var activePlaylistItems: []
-  property string activePlaylistName: ""
+  // The playlist page: a saved playlist, or one resolved from a pasted link
+  // ({ id: "" while it is not saved }). While set it replaces the tab body.
+  property var page: null                 // { id, name, items, fromLink }
+  property bool pageBusy: false
+  property string pageError: ""
   property string newPlaylistName: ""
-  property string importPlaylistUrl: ""
-  property bool importingPlaylist: false
-  property string importPlaylistError: ""
   property bool eqExpanded: false
+  readonly property var history: service ? service.playHistory : []
 
   // The payload is how the mini player hands its search over (see
   // BarWidget.openFullPlayer). `search` prefills the field and `results` are
@@ -76,6 +76,7 @@ Item {
       // starts now rather than 300ms after a keystroke nobody typed.
       liveSearchTimer.stop()
       if (!root.searchIsLink) runSearch()
+      else if (root.searchIsPlaylist) previewLink()
     }
 
     Qt.callLater(function() {
@@ -85,6 +86,89 @@ Item {
   function close() { opened = false }
 
   readonly property bool searchIsLink: Api.isYouTubeLink(root.searchText)
+  readonly property bool searchIsPlaylist: searchIsLink && /[?&]list=/.test(root.searchText)
+
+  // Resolve a pasted playlist link into the playlist page. Nothing is saved
+  // or played until a button on the page is pressed.
+  function previewLink() {
+    var link = root.searchText.trim()
+    if (!link || !service) return
+    pageBusy = true
+    pageError = ""
+    service.previewPlaylist(link, function(ok, result, message) {
+      pageBusy = false
+      if (!ok || !result || !result.items || result.items.length === 0) {
+        pageError = message || "Could not read that playlist"
+        return
+      }
+      root.page = { id: "", name: result.title || "Playlist", items: result.items, fromLink: true }
+    })
+  }
+
+  function pageDurationText() {
+    if (!page) return ""
+    var ms = 0
+    for (var i = 0; i < page.items.length; i++) ms += Number(page.items[i].durationMs || 0)
+    var minutes = Math.round(ms / 60000)
+    var h = Math.floor(minutes / 60), m = minutes % 60
+    return page.items.length + " tracks" + (minutes > 0 ? " · " + (h > 0 ? h + " h " : "") + m + " min" : "")
+  }
+
+  function playPage(shuffle) {
+    if (!page || !service) return
+    if (shuffle) service.setShuffle(true)
+    service.playQueueFrom(page.items, 0)
+  }
+
+  function addPageToQueue() {
+    if (!page || !service) return
+    for (var i = 0; i < page.items.length; i++) service.addToQueue(page.items[i])
+  }
+
+  function savePage() {
+    if (!page || !service || page.id !== "") return
+    service.createPlaylist(page.name, page.items, function(ok) {
+      if (!ok) return
+      service.listPlaylists(function() {})
+      root.page = null
+      root.activeTab = "playlists"
+    })
+  }
+
+  function saveQueueAsPlaylist() {
+    if (!service || service.queue.length === 0) return
+    var name = root.history.length > 0 ? "Queue · " + Qt.formatDateTime(new Date(), "d MMM HH:mm") : "Queue"
+    service.createPlaylist(name, null, function(ok) { if (ok) service.listPlaylists(function() {}) })
+  }
+
+  // History grouped by day, newest first, as flat rows the list can draw:
+  // { label } rows are day headers, the rest are tracks.
+  function recentRows() {
+    var rows = []
+    var lastDay = ""
+    var today = new Date(); today.setHours(0, 0, 0, 0)
+    var dayMs = 86400000
+    for (var i = 0; i < root.history.length; i++) {
+      var t = root.history[i]
+      var at = Number(t.playedAt || 0) * 1000
+      var label
+      if (!at) label = "EARLIER"
+      else if (at >= today.getTime()) label = "TODAY"
+      else if (at >= today.getTime() - dayMs) label = "YESTERDAY"
+      else label = Qt.formatDate(new Date(at), "d MMMM").toUpperCase()
+      if (label !== lastDay) { rows.push({ header: true, label: label }); lastDay = label }
+      rows.push({ header: false, track: t, when: at ? Qt.formatTime(new Date(at), "HH:mm") : "" })
+    }
+    return rows
+  }
+
+  function mostPlayed() {
+    var rows = []
+    for (var i = 0; i < root.history.length; i++)
+      if (Number(root.history[i].plays || 0) >= 2) rows.push(root.history[i])
+    rows.sort(function(a, b) { return Number(b.plays) - Number(a.plays) })
+    return rows.slice(0, 50)
+  }
 
   function runSearch() {
     if (!root.searchText.trim()) { searchResults = []; searchError = ""; return }
@@ -136,7 +220,8 @@ Item {
 
   function submitSearchField() {
     liveSearchTimer.stop()
-    if (root.searchIsLink) openLinkNow()
+    if (root.searchIsPlaylist) previewLink()
+    else if (root.searchIsLink) openLinkNow()
     else { root.activeTab = "search"; runSearch() }
   }
 
@@ -155,27 +240,16 @@ Item {
     return -1
   }
 
-  function importPlaylistFromLink() {
-    var url = root.importPlaylistUrl.trim()
-    if (!url || !service) return
-    importingPlaylist = true
-    importPlaylistError = ""
-    service.importPlaylist(url, "", function(ok, result, message) {
-      importingPlaylist = false
-      if (!ok) { importPlaylistError = message || "Could not import that playlist"; return }
-      root.importPlaylistUrl = ""
-      service.listPlaylists(function() {})
-    })
-  }
-
   function openPlaylist(playlistId) {
     if (!service) return
     service.getPlaylist(playlistId, function(ok, result) {
       if (!ok) return
-      activePlaylistId = playlistId
-      activePlaylistName = (result && result.name) || playlistId
-      activePlaylistItems = (result && result.items) || []
+      root.page = { id: playlistId, name: (result && result.name) || playlistId, items: (result && result.items) || [], fromLink: false }
     })
+  }
+
+  function openItems(title, items) {
+    root.page = { id: "", name: title, items: items, fromLink: false, virtual: true }
   }
 
   onOpenedChanged: {
@@ -198,16 +272,26 @@ Item {
 
     onVisibleChanged: if (!visible && root.opened) root.close()
 
+    CoverBlur {
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.top: parent.top
+      height: Style.space(240)
+      source: root.service ? root.service.trackThumbnail : ""
+      strength: 0.5
+      fadeTo: Color.background
+    }
+
     FocusScope {
       anchors.fill: parent
       focus: true
 
       ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Style.space(14)
-        spacing: Style.space(10)
+        anchors.margins: Style.space(16)
+        spacing: Style.space(12)
 
-        // ---- Header: search + tabs ----
+        // ---- Search, with a tag when the text is a playlist link ----
         RowLayout {
           Layout.fillWidth: true
           spacing: Style.space(8)
@@ -219,61 +303,181 @@ Item {
             text: root.searchText
             onTextChanged: {
               root.searchText = text
-              root.activeTab = "search"
-              // Never expand a link from the as-you-type timer: a playlist
-              // link replaces the queue, and half a pasted URL is not a link.
-              if (root.searchIsLink) liveSearchTimer.stop()
-              else liveSearchTimer.restart()
+              if (root.page && root.page.fromLink) root.page = null
+              root.pageError = ""
+              if (root.activeTab !== "search") root.activeTab = "search"
+              if (root.searchIsLink) {
+                liveSearchTimer.stop()
+                if (root.searchIsPlaylist) previewTimer.restart()
+              } else liveSearchTimer.restart()
             }
             onAccepted: root.submitSearchField()
           }
+          Rectangle {
+            visible: root.searchIsPlaylist
+            Layout.preferredHeight: Style.space(28)
+            Layout.preferredWidth: tagText.implicitWidth + Style.space(20)
+            radius: height / 2
+            color: root.rowFillActive
+            Text {
+              id: tagText
+              anchors.centerIn: parent
+              text: root.pageBusy ? "Reading playlist…" : (root.page && root.page.fromLink ? "Playlist · " + root.page.items.length : "Playlist")
+              color: root.fg
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+          }
           Button {
-            text: root.searching
-                  ? (root.searchIsLink ? "Opening…" : "Searching…")
-                  : (root.searchIsLink ? "Open link" : "Search")
-            iconText: root.searchIsLink ? root.iconPlay : root.iconSearch
+            visible: root.searchIsLink && !root.searchIsPlaylist
+            text: root.searching ? "Opening…" : "Open link"
+            iconText: root.iconPlay
             onClicked: root.submitSearchField()
           }
           Button {
-            visible: root.searchIsLink
+            visible: root.searchIsLink && !root.searchIsPlaylist
             text: root.enqueuingLink ? "Queueing…" : "Add to queue"
             iconText: root.iconQueueAdd
             enabled: !root.enqueuingLink
             onClicked: root.enqueueLinkNow()
           }
+          FlatButton {
+            buttonSize: Style.space(36)
+            iconText: root.iconClose
+            foreground: root.fg
+            tooltipText: "Close"
+            onClicked: root.close()
+          }
         }
 
-        // Live results as you type, debounced so we don't fire a search per
-        // keystroke — same idea as an autocomplete box.
-        Timer {
-          id: liveSearchTimer
-          interval: 300
-          repeat: false
-          onTriggered: root.runSearch()
-        }
+        Timer { id: liveSearchTimer; interval: 300; repeat: false; onTriggered: root.runSearch() }
+        Timer { id: previewTimer; interval: 450; repeat: false; onTriggered: root.previewLink() }
 
-        RowLayout {
+        Segmented {
           Layout.fillWidth: true
-          spacing: Style.space(4)
-
-          Button { text: "Search"; selected: root.activeTab === "search"; onClicked: root.activeTab = "search" }
-          Button { text: "Queue"; selected: root.activeTab === "queue"; onClicked: root.activeTab = "queue" }
-          Button { text: "Playlists"; selected: root.activeTab === "playlists"; onClicked: root.activeTab = "playlists" }
-          Button { text: "History"; selected: root.activeTab === "history"; onClicked: root.activeTab = "history" }
-          Item { Layout.fillWidth: true }
-          Chicklet { iconText: root.iconClose; tooltipText: "Close"; onClicked: root.close() }
+          foreground: root.fg
+          current: root.activeTab
+          model: [
+            { key: "search", label: "Search", glyph: root.iconSearch },
+            { key: "queue", label: "Queue", glyph: root.iconNote },
+            { key: "playlists", label: "Playlists", glyph: "\u{f0cb8}" },
+            { key: "recent", label: "Recent", glyph: "\u{f02da}" }
+          ]
+          onPicked: function(key) { root.page = null; root.activeTab = key }
         }
-
-        PanelSeparator { Layout.fillWidth: true }
 
         // ---- Body ----
         Item {
           Layout.fillWidth: true
           Layout.fillHeight: true
 
+          // ===== playlist page (saved playlist, pasted link, or a smart list)
+          ColumnLayout {
+            anchors.fill: parent
+            visible: root.page !== null
+            spacing: Style.space(12)
+
+            RowLayout {
+              Layout.fillWidth: true
+              spacing: Style.space(16)
+
+              FlatButton {
+                visible: !(root.page && root.page.fromLink)
+                iconText: "\u{f004d}"
+                foreground: root.fg
+                tooltipText: "Back"
+                onClicked: root.page = null
+              }
+              Rectangle {
+                Layout.preferredWidth: Style.space(92)
+                Layout.preferredHeight: Style.space(92)
+                radius: Style.space(12)
+                color: root.rowFill
+                clip: true
+                Grid {
+                  anchors.fill: parent
+                  columns: 2
+                  Repeater {
+                    model: root.page ? root.page.items.slice(0, 4) : []
+                    delegate: Image {
+                      width: parent.width / 2
+                      height: parent.height / 2
+                      source: modelData.thumbnail || ""
+                      fillMode: Image.PreserveAspectCrop
+                      asynchronous: true
+                    }
+                  }
+                }
+              }
+              ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.space(4)
+                Label {
+                  Layout.fillWidth: true
+                  text: root.page ? root.page.name : ""
+                  color: root.fg
+                  font.family: Style.font.family
+                  font.bold: true
+                  font.pixelSize: Style.font.subtitle
+                  elide: Text.ElideRight
+                }
+                Label {
+                  text: root.pageDurationText()
+                  color: root.fgDim
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                }
+              }
+            }
+
+            RowLayout {
+              Layout.fillWidth: true
+              spacing: Style.space(8)
+              Button { text: "Play all"; iconText: root.iconPlay; onClicked: root.playPage(false) }
+              Button { text: "Shuffle"; iconText: root.iconShuffle; onClicked: root.playPage(true) }
+              Button { text: "Add to queue"; iconText: root.iconQueueAdd; onClicked: root.addPageToQueue() }
+              Item { Layout.fillWidth: true }
+              Button {
+                visible: !!root.page && root.page.id === "" && !root.page.virtual
+                text: "Save"
+                iconText: root.iconPlaylistAdd
+                onClicked: root.savePage()
+              }
+              Button {
+                visible: !!root.page && root.page.id !== ""
+                text: "Delete"
+                iconText: root.iconClose
+                onClicked: {
+                  if (!root.service) return
+                  root.service.deletePlaylist(root.page.id)
+                  root.page = null
+                  root.service.listPlaylists(function() {})
+                }
+              }
+            }
+
+            ListView {
+              Layout.fillWidth: true
+              Layout.fillHeight: true
+              model: root.page ? root.page.items : []
+              clip: true
+              spacing: Style.space(2)
+              ScrollBar.vertical: ScrollBar {}
+              delegate: TrackRow {
+                width: ListView.view.width
+                item: modelData
+                service: root.service
+                queueGlyph: root.iconQueueAdd
+                onPlayRequested: if (root.service) root.service.playQueueFrom(root.page.items, index)
+                onQueueRequested: if (root.service) root.service.addToQueue(modelData)
+              }
+            }
+          }
+
+          // ===== search
           ListView {
             anchors.fill: parent
-            visible: root.activeTab === "search"
+            visible: root.page === null && root.activeTab === "search"
             model: root.searchResults
             clip: true
             spacing: Style.space(2)
@@ -282,8 +486,8 @@ Item {
             Label {
               anchors.centerIn: parent
               visible: root.searchResults.length === 0
-              text: root.searchError || (root.searching ? "Searching…" : "Search YouTube, or paste a video or playlist link")
-              color: root.fgDim
+              text: root.pageError || root.searchError || (root.searching || root.pageBusy ? "Searching…" : "Search YouTube, or paste a video or playlist link")
+              color: root.pageError !== "" || root.searchError !== "" ? Color.urgent : root.fgDim
               font.family: Style.font.family
             }
 
@@ -302,201 +506,330 @@ Item {
             }
           }
 
-          ListView {
-            anchors.fill: parent
-            visible: root.activeTab === "queue"
-            model: root.service ? root.service.queue : []
-            clip: true
-            spacing: Style.space(2)
-            ScrollBar.vertical: ScrollBar {}
-
-            Label {
-              anchors.centerIn: parent
-              visible: !root.service || root.service.queue.length === 0
-              text: "Queue is empty"
-              color: root.fgDim
-              font.family: Style.font.family
-            }
-
-            delegate: TrackRow {
-              width: ListView.view.width
-              item: modelData
-              service: root.service
-              highlighted: index === (root.service ? root.service.queueIndex : -1)
-              queueGlyph: root.iconClose
-              onPlayRequested: if (root.service) root.service.playQueueFrom(root.service.queue, index)
-              onQueueRequested: if (root.service) root.service.removeFromQueue(index)
-            }
-          }
-
+          // ===== queue
           ColumnLayout {
             anchors.fill: parent
-            visible: root.activeTab === "playlists"
-            spacing: Style.space(8)
+            visible: root.page === null && root.activeTab === "queue"
+            spacing: Style.space(6)
 
             RowLayout {
               Layout.fillWidth: true
-              visible: root.activePlaylistId === ""
-              spacing: Style.space(8)
-              TextField {
+              Label {
                 Layout.fillWidth: true
-                placeholderText: "Save current queue as…"
-                text: root.newPlaylistName
-                onTextChanged: root.newPlaylistName = text
+                text: root.service ? "UP NEXT · " + root.service.queue.length + " TRACKS" : ""
+                color: root.fgDim
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1.4
               }
               Button {
-                text: "Save"
+                visible: !!root.service && root.service.queue.length > 0
+                text: "Save as playlist"
                 iconText: root.iconPlaylistAdd
-                enabled: root.newPlaylistName.trim() !== ""
-                onClicked: {
-                  if (!root.service) return
-                  service.createPlaylist(root.newPlaylistName.trim(), null, function() {
-                    root.newPlaylistName = ""
-                    service.listPlaylists(function() {})
-                  })
-                }
-              }
-            }
-
-            RowLayout {
-              Layout.fillWidth: true
-              visible: root.activePlaylistId === ""
-              spacing: Style.space(8)
-              TextField {
-                Layout.fillWidth: true
-                placeholderText: "Paste a YouTube playlist link…"
-                text: root.importPlaylistUrl
-                onTextChanged: root.importPlaylistUrl = text
-                onAccepted: root.importPlaylistFromLink()
-              }
-              Button {
-                text: root.importingPlaylist ? "Importing…" : "Import"
-                iconText: root.iconPlaylistAdd
-                enabled: root.importPlaylistUrl.trim() !== "" && !root.importingPlaylist
-                onClicked: root.importPlaylistFromLink()
-              }
-            }
-
-            Label {
-              Layout.fillWidth: true
-              visible: root.activePlaylistId === "" && root.importPlaylistError !== ""
-              text: root.importPlaylistError
-              color: Color.urgent
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
-            }
-
-            RowLayout {
-              visible: root.activePlaylistId !== ""
-              spacing: Style.space(8)
-              Chicklet { iconText: root.iconPrev; tooltipText: "Back"; onClicked: root.activePlaylistId = "" }
-              Label { text: root.activePlaylistName; color: root.fg; font.bold: true; font.family: Style.font.family
-                font.pixelSize: Style.font.subtitle; Layout.fillWidth: true; elide: Text.ElideRight }
-              Button {
-                text: "Add to queue"
-                iconText: root.iconQueueAdd
-                enabled: root.activePlaylistItems.length > 0
-                onClicked: root.service && root.service.addAllToQueue(root.activePlaylistItems, function() {})
+                onClicked: root.saveQueueAsPlaylist()
               }
             }
 
             ListView {
               Layout.fillWidth: true
               Layout.fillHeight: true
-              visible: root.activePlaylistId === ""
-              model: root.service ? root.service.playlists : []
+              model: root.service ? root.service.queue : []
               clip: true
               spacing: Style.space(2)
+              ScrollBar.vertical: ScrollBar {}
 
               Label {
                 anchors.centerIn: parent
-                visible: !root.service || root.service.playlists.length === 0
-                text: "No playlists yet. Save your queue above."
+                visible: !root.service || root.service.queue.length === 0
+                text: "Queue is empty"
                 color: root.fgDim
                 font.family: Style.font.family
               }
-
-              delegate: Rectangle {
-                width: ListView.view.width
-                height: Style.space(46)
-                radius: Style.cornerRadius
-                color: hoverArea.containsMouse ? root.rowFill : "transparent"
-
-                RowLayout {
-                  anchors.fill: parent
-                  anchors.margins: Style.space(8)
-                  spacing: Style.space(8)
-                  Label {
-                    text: modelData.name; color: root.fg; Layout.fillWidth: true
-                    font.family: Style.font.family; elide: Text.ElideRight
-                  }
-                  Label {
-                    text: modelData.count + " tracks"; color: root.fgDim
-                    font.family: Style.font.family; font.pixelSize: Style.font.caption
-                  }
-                  Chicklet {
-                    iconText: root.iconClose
-                    tooltipText: "Delete playlist"
-                    onClicked: root.service && root.service.deletePlaylist(modelData.id)
-                  }
-                }
-                MouseArea {
-                  id: hoverArea
-                  anchors.fill: parent
-                  anchors.rightMargin: Style.space(46)
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.openPlaylist(modelData.id)
-                }
-              }
-            }
-
-            ListView {
-              Layout.fillWidth: true
-              Layout.fillHeight: true
-              visible: root.activePlaylistId !== ""
-              model: root.activePlaylistItems
-              clip: true
-              spacing: Style.space(2)
 
               delegate: TrackRow {
                 width: ListView.view.width
                 item: modelData
                 service: root.service
+                highlighted: index === (root.service ? root.service.queueIndex : -1)
                 queueGlyph: root.iconClose
-                onPlayRequested: if (root.service) root.service.playQueueFrom(root.activePlaylistItems, index)
-                onQueueRequested: if (root.service) root.service.removeFromPlaylist(root.activePlaylistId, modelData.videoId)
+                onPlayRequested: if (root.service) root.service.playQueueFrom(root.service.queue, index)
+                onQueueRequested: if (root.service) root.service.removeFromQueue(index)
               }
             }
           }
 
-          ListView {
+          // ===== playlists
+          Flickable {
             anchors.fill: parent
-            visible: root.activeTab === "history"
-            model: root.service ? root.service.playHistory : []
+            visible: root.page === null && root.activeTab === "playlists"
+            contentHeight: playlistsColumn.implicitHeight
             clip: true
-            spacing: Style.space(2)
+            boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
 
-            Label {
-              anchors.centerIn: parent
-              visible: !root.service || root.service.playHistory.length === 0
-              text: "Nothing played yet"
-              color: root.fgDim
-              font.family: Style.font.family
+            ColumnLayout {
+              id: playlistsColumn
+              width: parent.width
+              spacing: Style.space(10)
+
+              RowLayout {
+                Layout.fillWidth: true
+                visible: root.history.length > 0
+                Label {
+                  Layout.fillWidth: true
+                  text: "RECENTLY PLAYED"
+                  color: root.fgDim
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                  font.letterSpacing: 1.4
+                }
+                Button { text: "See all"; onClicked: root.activeTab = "recent" }
+              }
+
+              RowLayout {
+                Layout.fillWidth: true
+                visible: root.history.length > 0
+                spacing: Style.space(10)
+                Repeater {
+                  model: root.history.slice(0, 3)
+                  delegate: Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    implicitHeight: recentCard.implicitHeight + Style.space(20)
+                    radius: Style.space(14)
+                    color: root.cardFill
+
+                    ColumnLayout {
+                      id: recentCard
+                      anchors.fill: parent
+                      anchors.margins: Style.space(10)
+                      spacing: Style.space(8)
+                      Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Style.space(96)
+                        radius: Style.space(10)
+                        color: root.rowFill
+                        clip: true
+                        Image {
+                          anchors.fill: parent
+                          source: modelData.thumbnail || ""
+                          fillMode: Image.PreserveAspectCrop
+                          asynchronous: true
+                        }
+                        FlatButton {
+                          anchors.right: parent.right
+                          anchors.bottom: parent.bottom
+                          anchors.margins: Style.space(6)
+                          primary: true
+                          buttonSize: Style.space(30)
+                          iconText: root.iconPlay
+                          onClicked: if (root.service) root.service.playNow(modelData)
+                        }
+                      }
+                      Label {
+                        Layout.fillWidth: true
+                        text: modelData.name || ""
+                        color: root.fg
+                        font.family: Style.font.family
+                        font.pixelSize: Style.font.caption
+                        elide: Text.ElideRight
+                      }
+                    }
+                  }
+                }
+              }
+
+              Label {
+                text: "PLAYLISTS"
+                color: root.fgDim
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1.4
+              }
+
+              // Most played: computed from the history's play counts.
+              Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Style.space(54)
+                radius: Style.space(12)
+                visible: root.mostPlayed().length > 0
+                color: mpHover.containsMouse ? root.rowFill : "transparent"
+                RowLayout {
+                  anchors.fill: parent
+                  anchors.leftMargin: Style.space(8)
+                  anchors.rightMargin: Style.space(8)
+                  spacing: Style.space(14)
+                  Rectangle {
+                    Layout.preferredWidth: Style.space(40)
+                    Layout.preferredHeight: Style.space(40)
+                    radius: Style.space(10)
+                    color: root.rowFillActive
+                    Text {
+                      anchors.fill: parent
+                      horizontalAlignment: Text.AlignHCenter
+                      verticalAlignment: Text.AlignVCenter
+                      text: "\u{f04ce}"
+                      color: root.accent
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.iconLarge
+                    }
+                  }
+                  ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.space(2)
+                    Label { text: "Most played"; color: root.fg; font.family: Style.font.family; font.pixelSize: Style.font.body }
+                    Label { text: "Smart · from your play counts"; color: root.fgDim; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                  }
+                  Label { text: root.mostPlayed().length + ""; color: root.fgDim; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                }
+                MouseArea {
+                  id: mpHover
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.openItems("Most played", root.mostPlayed())
+                }
+              }
+
+              Repeater {
+                model: root.service ? root.service.playlists : []
+                delegate: Rectangle {
+                  Layout.fillWidth: true
+                  Layout.preferredHeight: Style.space(54)
+                  radius: Style.space(12)
+                  color: plHover.containsMouse ? root.rowFill : "transparent"
+                  RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: Style.space(8)
+                    anchors.rightMargin: Style.space(8)
+                    spacing: Style.space(14)
+                    Rectangle {
+                      Layout.preferredWidth: Style.space(40)
+                      Layout.preferredHeight: Style.space(40)
+                      radius: Style.space(9)
+                      color: root.rowFill
+                      clip: true
+                      Grid {
+                        anchors.fill: parent
+                        columns: 2
+                        Repeater {
+                          model: modelData.covers || []
+                          delegate: Image {
+                            width: parent.width / 2
+                            height: parent.height / 2
+                            source: modelData
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                          }
+                        }
+                      }
+                    }
+                    ColumnLayout {
+                      Layout.fillWidth: true
+                      spacing: Style.space(2)
+                      Label { Layout.fillWidth: true; text: modelData.name; color: root.fg; font.family: Style.font.family; font.pixelSize: Style.font.body; elide: Text.ElideRight }
+                      Label { text: modelData.count + " tracks"; color: root.fgDim; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                    }
+                    FlatButton {
+                      iconText: root.iconPlay
+                      tooltipText: "Play"
+                      foreground: root.accent
+                      onClicked: {
+                        if (!root.service) return
+                        root.service.getPlaylist(modelData.id, function(ok, result) {
+                          if (ok && result && result.items && result.items.length > 0)
+                            root.service.playQueueFrom(result.items, 0)
+                        })
+                      }
+                    }
+                  }
+                  MouseArea {
+                    id: plHover
+                    anchors.fill: parent
+                    z: -1
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.openPlaylist(modelData.id)
+                  }
+                }
+              }
+
+              Label {
+                visible: !root.service || root.service.playlists.length === 0
+                text: "No saved playlists yet. Paste a playlist link above, or save the queue."
+                color: root.fgDim
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+
+          // ===== recent
+          ColumnLayout {
+            anchors.fill: parent
+            visible: root.page === null && root.activeTab === "recent"
+            spacing: Style.space(6)
+
+            RowLayout {
+              Layout.fillWidth: true
+              Item { Layout.fillWidth: true }
+              Button {
+                visible: root.history.length > 0
+                text: "Play all"
+                iconText: root.iconPlay
+                onClicked: if (root.service) root.service.playQueueFrom(root.history, 0)
+              }
+              Button {
+                visible: root.history.length > 0
+                text: "Clear history"
+                iconText: root.iconClose
+                onClicked: if (root.service) root.service.clearHistory(function() {})
+              }
             }
 
-            delegate: TrackRow {
-              width: ListView.view.width
-              item: modelData
-              service: root.service
-              queueGlyph: root.queueIndexFor(modelData.videoId) >= 0 ? root.iconClose : root.iconQueueAdd
-              onPlayRequested: if (root.service) root.service.playNow(modelData)
-              onQueueRequested: {
-                if (!root.service) return
-                var idx = root.queueIndexFor(modelData.videoId)
-                if (idx >= 0) root.service.removeFromQueue(idx)
-                else root.service.addToQueue(modelData)
+            ListView {
+              Layout.fillWidth: true
+              Layout.fillHeight: true
+              model: root.recentRows()
+              clip: true
+              spacing: Style.space(2)
+              ScrollBar.vertical: ScrollBar {}
+
+              Label {
+                anchors.centerIn: parent
+                visible: root.history.length === 0
+                text: "Nothing played yet"
+                color: root.fgDim
+                font.family: Style.font.family
+              }
+
+              delegate: Loader {
+                width: ListView.view.width
+                property var rowData: modelData
+                sourceComponent: modelData.header ? headerRow : trackRow
+              }
+            }
+
+            Component {
+              id: headerRow
+              Label {
+                height: Style.space(30)
+                verticalAlignment: Text.AlignVCenter
+                text: rowData.label
+                color: root.fgDim
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1.4
+              }
+            }
+            Component {
+              id: trackRow
+              TrackRow {
+                item: rowData.track
+                service: root.service
+                queueGlyph: root.iconQueueAdd
+                onPlayRequested: if (root.service) root.service.playNow(rowData.track)
+                onQueueRequested: if (root.service) root.service.addToQueue(rowData.track)
               }
             }
           }
@@ -601,122 +934,143 @@ Item {
           Item { Layout.fillWidth: true }
         }
 
-        // ---- Transport ----
-        BorderSurface {
+        // ---- Now playing: one row that never overflows ----
+        Rectangle {
           Layout.fillWidth: true
-          Layout.preferredHeight: Style.space(74)
-          radius: Style.cornerRadius
-          color: root.cardFill
+          Layout.preferredHeight: Style.space(78)
+          radius: Style.space(16)
+          color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.06)
 
           RowLayout {
             anchors.fill: parent
-            anchors.margins: Style.space(10)
-            spacing: Style.space(10)
+            anchors.leftMargin: Style.space(12)
+            anchors.rightMargin: Style.space(12)
+            spacing: Style.space(12)
 
             Rectangle {
-              Layout.preferredWidth: Style.space(52)
-              Layout.preferredHeight: Style.space(52)
-              radius: Style.cornerRadius
+              Layout.preferredWidth: Style.space(54)
+              Layout.preferredHeight: Style.space(54)
+              radius: Style.space(10)
               color: root.rowFill
+              clip: true
               Image {
                 anchors.fill: parent
-                visible: root.service && root.service.trackThumbnail !== ""
                 source: root.service ? root.service.trackThumbnail : ""
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
               }
-              Label {
-                anchors.centerIn: parent
-                visible: !root.service || root.service.trackThumbnail === ""
-                text: root.iconNote
-                color: root.fgDim
-                font.family: Style.font.family
-                font.pixelSize: Style.font.icon
-              }
             }
 
             ColumnLayout {
-              Layout.preferredWidth: Style.space(200)
+              Layout.preferredWidth: Style.space(190)
+              Layout.maximumWidth: Style.space(190)
               spacing: Style.space(2)
               Label {
+                Layout.fillWidth: true
                 text: root.service && root.service.hasTrack ? root.service.trackTitle : "Nothing playing"
                 color: root.fg
-                font.bold: true
                 font.family: Style.font.family
+                font.bold: true
+                font.pixelSize: Style.font.body
                 elide: Text.ElideRight
-                Layout.fillWidth: true
               }
               Label {
-                text: (root.service && root.service.lastError) || (root.service ? root.service.trackArtist : "")
-                color: (root.service && root.service.lastError) ? Color.urgent : root.fgDim
+                Layout.fillWidth: true
+                text: root.service ? root.service.trackArtist : ""
+                color: root.fgDim
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
                 elide: Text.ElideRight
-                Layout.fillWidth: true
               }
             }
 
-            Chicklet { iconText: root.iconShuffle
-              selected: !!(root.service && root.service.shuffle)
-              tooltipText: "Shuffle"
-              onClicked: root.service && root.service.setShuffle(!root.service.shuffle) }
-            Chicklet { iconText: root.iconPrev; tooltipText: "Previous"
-              onClicked: root.service && root.service.previous() }
-            Chicklet {
-              iconText: root.service && root.service.effectivePlaying ? root.iconPause : root.iconPlay
-              iconSize: Style.font.iconLarge
-              chickletSize: Style.space(38)
-              tooltipText: root.service && root.service.effectivePlaying ? "Pause" : "Play"
-              onClicked: root.service && root.service.togglePlayback()
-            }
-            Chicklet { iconText: root.iconNext; tooltipText: "Next"
-              onClicked: root.service && root.service.next() }
-            Chicklet {
-              iconText: root.service && root.service.repeat === "track" ? root.iconRepeatOne : root.iconRepeat
-              selected: root.service && root.service.repeat !== "off"
-              tooltipText: "Repeat"
-              onClicked: root.service && root.service.cycleRepeat()
-            }
-
-            ColumnLayout {
-              Layout.fillWidth: true
+            RowLayout {
               spacing: Style.space(2)
-              PanelSlider {
-                Layout.fillWidth: true
-                minimum: 0
-                maximum: Math.max(1, root.service ? root.service.durationMs : 1)
-                value: root.service ? root.service.positionMs : 0
-                onMoved: function(v) { if (root.service) root.service.seek(v) }
+              FlatButton {
+                iconText: root.iconShuffle
+                selected: !!(root.service && root.service.shuffle)
+                foreground: root.fg
+                tooltipText: "Shuffle"
+                onClicked: root.service && root.service.setShuffle(!root.service.shuffle)
               }
-              RowLayout {
-                Layout.fillWidth: true
-                Label { text: Api.formatTime(root.service ? root.service.positionMs : 0)
-                  color: root.fgDim; font.pixelSize: Style.font.caption; font.family: Style.font.family }
-                Item { Layout.fillWidth: true }
-                Label { text: Api.formatTime(root.service ? root.service.durationMs : 0)
-                  color: root.fgDim; font.pixelSize: Style.font.caption; font.family: Style.font.family }
+              FlatButton {
+                iconText: root.iconPrev
+                foreground: root.fg
+                tooltipText: "Previous"
+                onClicked: root.service && root.service.previous()
+              }
+              FlatButton {
+                primary: true
+                buttonSize: Style.space(44)
+                iconSize: Style.font.iconLarge
+                iconText: root.service && root.service.playing ? root.iconPause : root.iconPlay
+                tooltipText: "Play / pause"
+                onClicked: root.service && root.service.togglePlayback()
+              }
+              FlatButton {
+                iconText: root.iconNext
+                foreground: root.fg
+                tooltipText: "Next"
+                onClicked: root.service && root.service.next()
+              }
+              FlatButton {
+                iconText: root.service && root.service.repeat === "track" ? root.iconRepeatOne : root.iconRepeat
+                selected: !!(root.service && root.service.repeat !== "off")
+                foreground: root.fg
+                tooltipText: "Repeat"
+                onClicked: root.service && root.service.cycleRepeat()
               }
             }
 
+            Label {
+              text: Api.formatTime(root.service ? root.service.positionMs : 0)
+              color: root.fgDim
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
             PanelSlider {
-              Layout.preferredWidth: Style.space(90)
-              minimum: 0; maximum: 100
+              Layout.fillWidth: true
+              Layout.minimumWidth: Style.space(80)
+              minimum: 0
+              maximum: Math.max(1, root.service ? root.service.durationMs : 1)
+              value: root.service ? root.service.positionMs : 0
+              onMoved: function(v) { if (root.service) root.service.seek(v) }
+            }
+            Label {
+              text: Api.formatTime(root.service ? root.service.durationMs : 0)
+              color: root.fgDim
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+
+            Label {
+              text: "\u{f057e}"
+              color: root.fgDim
+              font.family: Style.font.family
+              font.pixelSize: Style.font.icon
+            }
+            PanelSlider {
+              Layout.preferredWidth: Style.space(70)
+              Layout.maximumWidth: Style.space(70)
+              minimum: 0
+              maximum: 100
               value: root.service ? root.service.volume : 80
               onMoved: function(v) { if (root.service) root.service.setVolume(v) }
             }
 
-            Chicklet {
-              iconText: "󰕧"
+            FlatButton {
+              iconText: "\u{f0567}"
               selected: !!(root.service && root.service.videoActive)
               enabled: !!(root.service && root.service.hasTrack)
-              tooltipText: root.service && root.service.videoActive
-                           ? "Close the video window"
-                           : "Watch the video"
+              foreground: root.fg
+              tooltipText: root.service && root.service.videoActive ? "Close the video window" : "Watch the video"
               onClicked: root.toggleVideo()
             }
-            Button {
-              text: "EQ"
+            FlatButton {
+              iconText: "\u{f04c3}"
               selected: root.eqExpanded
+              foreground: root.fg
+              tooltipText: root.eqExpanded ? "Hide equaliser" : "Show equaliser"
               onClicked: root.eqExpanded = !root.eqExpanded
             }
           }
@@ -724,5 +1078,4 @@ Item {
       }
     }
   }
-
 }
