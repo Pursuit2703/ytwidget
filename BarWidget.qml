@@ -127,15 +127,8 @@ BarWidget {
     root.saveUi()
   }
 
-  function cycleSize() {
-    var order = ["icon", "title", "full"]
-    var next = order[(order.indexOf(root.sizeMode) + 1) % order.length]
-    root.uiSize = next
-    root.saveUi()
-  }
-
-  function setIconWidth(px) {
-    root.uiIconWidth = Math.round(px)
+  function toggleWide() {
+    root.uiSize = root.sizeMode === "full" ? "icon" : "full"
     root.saveUi()
   }
 
@@ -1322,44 +1315,26 @@ BarWidget {
         }
       }
 
-      // How the chip looks on the bar. The button cycles icon, title, full;
-      // the slider sets the width of the icon-only chip. Both are remembered.
+      // How the chip looks on the bar: compact (the note alone) or wide (the
+      // original chip with the scrolling title and the hover controls). One
+      // switch, remembered. The in-between "title" size stays available as a
+      // shell.json setting.
       RowLayout {
         width: parent.width
         spacing: Style.space(8)
 
         Chicklet {
-          iconText: root.sizeMode === "icon" ? "\u25aa" : root.sizeMode === "title" ? "\u25ac" : "\u25ad"
-          selected: root.sizeMode !== "full"
+          iconText: root.sizeMode === "full" ? "\u25ad" : "\u25aa"
+          selected: root.sizeMode === "full"
           foreground: root.bar.foreground
-          tooltipText: "Bar size: " + root.sizeMode + ". Click to change"
-          onClicked: root.cycleSize()
+          tooltipText: root.sizeMode === "full"
+            ? "Wide bar chip. Click for compact (icon only)"
+            : "Compact bar chip. Click for wide (title and controls)"
+          onClicked: root.toggleWide()
         }
         Text {
-          text: root.sizeMode === "icon" ? "WIDTH" : "BAR SIZE"
-          color: Qt.darker(root.bar.foreground, 1.4)
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
-        }
-        PanelSlider {
           Layout.fillWidth: true
-          visible: root.sizeMode === "icon"
-          minimum: 20
-          maximum: 80
-          value: root.iconModeWidth / Style.space(1)
-          onMoved: function(v) { root.setIconWidth(v) }
-        }
-        Text {
-          visible: root.sizeMode === "icon"
-          text: Math.round(root.iconModeWidth / Style.space(1)) + " px"
-          color: Qt.darker(root.bar.foreground, 1.4)
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
-        }
-        Text {
-          visible: root.sizeMode !== "icon"
-          Layout.fillWidth: true
-          text: root.sizeMode === "title" ? "Icon and title" : "Icon, title and controls"
+          text: root.sizeMode === "full" ? "Wide: title and controls" : "Compact: icon only"
           color: Qt.darker(root.bar.foreground, 1.4)
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
