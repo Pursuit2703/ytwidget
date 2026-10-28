@@ -656,6 +656,10 @@ BarWidget {
   // needs no knowledge of how island-bar names or nests its containers, so a
   // layout change degrades to a wrong-ish gap rather than a broken binding.
   property var ambientGaps: []
+  // True while the last measurement differed from the one before it, i.e.
+  // while the bar is animating (a drawer opening, a title changing width).
+  // The timer then ticks fast so the spectrum follows instead of lagging.
+  property bool ambientMoving: false
 
   readonly property real ambientGapPad: Style.space(10)
   readonly property real ambientMinGap: Style.space(40)
@@ -770,8 +774,9 @@ BarWidget {
           break
         }
       }
-      if (same) return
+      if (same) { ambientMoving = false; return }
     }
+    ambientMoving = true
     ambientGaps = gaps
   }
 
@@ -779,7 +784,7 @@ BarWidget {
   // clock — so this is re-measured on a timer rather than hooked to any one
   // widget's geometry. Cheap: a few hundred item reads, four times a second.
   Timer {
-    interval: 250
+    interval: root.ambientMoving ? 40 : 250
     repeat: true
     running: root.ambientEnabled
     triggeredOnStart: true
