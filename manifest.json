@@ -34,6 +34,7 @@
       "maxWidth": 128,
       "size": "full",
       "iconWidth": 0,
+      "glyphSize": 0,
       "miniResults": 12,
       "crossfadeMs": 500,
       "subtitleLang": "en",
@@ -63,6 +64,16 @@
         "options": ["icon", "title", "full"],
         "defaultValue": "full",
         "description": "icon: just the note, tinted while playing. title: note plus the scrolling title. full: also the hover transport controls."
+      },
+      {
+        "key": "glyphSize",
+        "type": "integer",
+        "label": "Note icon size",
+        "min": 0,
+        "max": 32,
+        "step": 1,
+        "defaultValue": 0,
+        "description": "Size of the music note in the bar. 0 matches the other bar icons; raise it to make the note bigger."
       },
       {
         "key": "iconWidth",

@@ -161,6 +161,12 @@ BarWidget {
     const w = Number(root.setting("iconWidth", 0)) || 0
     return w > 0 ? Style.space(w) : Style.bar.iconSlot
   }
+  // Size of the note glyph itself, in the bar's own icon-font units. 0 keeps
+  // the bar default so it matches the neighbouring icons.
+  readonly property real glyphSize: {
+    const g = Number(root.setting("glyphSize", 0)) || 0
+    return g > 0 ? g : Style.bar.iconFont
+  }
   implicitWidth: sizeMode === "icon" ? iconModeWidth : row.implicitWidth + Style.space(14)
   implicitHeight: barSize
 
@@ -384,7 +390,7 @@ BarWidget {
           id: noteButton
           bar: root.bar
           text: root.musicGlyph
-          fontSize: Style.bar.iconFont
+          fontSize: root.glyphSize
           foreground: root.lastError !== "" ? Color.urgent : root.noteColor
           fixedWidth: Style.bar.iconSlot
           fixedHeight: root.barSize
