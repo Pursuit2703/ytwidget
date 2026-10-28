@@ -1761,7 +1761,7 @@ BarWidget {
         }
         FlatButton {
           buttonSize: Style.space(36)
-          iconText: root.sizeMode === "full" ? "\u25ac" : "\u25aa"
+          iconText: root.sizeMode === "full" ? "\u{f084c}" : "\u{f084e}"
           selected: root.sizeMode === "full"
           foreground: root.bar.foreground
           tooltipText: root.sizeMode === "full"
