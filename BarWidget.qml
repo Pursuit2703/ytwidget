@@ -125,6 +125,8 @@ BarWidget {
   function setAmbient(on) {
     root.ambientEnabled = !!on
     root.saveUi()
+    // The spectrum window shows or hides a moment from now.
+    Qt.callLater(root.refocusPopup)
   }
 
   function toggleWide() {
@@ -997,10 +999,29 @@ BarWidget {
   // already does.
   property var popupFocusToplevel: null
 
+  // Showing or hiding the ambient spectrum window takes keyboard focus away
+  // from the card: typing in the search field then lands in whatever window
+  // was focused before. Dropping the grab for a moment and taking it again
+  // gives the card its focus back.
+  property bool grabPaused: false
+
   HyprlandFocusGrab {
+    id: popupGrab
     windows: [popup]
-    active: root.popupOpen
-    onCleared: root.popupOpen = false
+    active: root.popupOpen && !root.grabPaused
+    onCleared: if (!root.grabPaused) root.popupOpen = false
+  }
+
+  Timer {
+    id: grabResume
+    interval: 120
+    onTriggered: root.grabPaused = false
+  }
+
+  function refocusPopup() {
+    if (!root.popupOpen) return
+    root.grabPaused = true
+    grabResume.restart()
   }
 
   // Focus moving to a different window closes the card too. The grab only
