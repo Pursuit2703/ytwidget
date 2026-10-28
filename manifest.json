@@ -33,6 +33,7 @@
       "idleShutdownMinutes": 15,
       "maxWidth": 128,
       "size": "full",
+      "iconWidth": 0,
       "miniResults": 12,
       "crossfadeMs": 500,
       "subtitleLang": "en",
@@ -62,6 +63,16 @@
         "options": ["icon", "title", "full"],
         "defaultValue": "full",
         "description": "icon: just the note, tinted while playing. title: note plus the scrolling title. full: also the hover transport controls."
+      },
+      {
+        "key": "iconWidth",
+        "type": "integer",
+        "label": "Icon-size width",
+        "min": 0,
+        "max": 80,
+        "step": 1,
+        "defaultValue": 0,
+        "description": "Width in px of the chip when Bar size is icon. 0 matches the other bar icons exactly; raise it for more breathing room."
       },
       {
         "key": "maxWidth",

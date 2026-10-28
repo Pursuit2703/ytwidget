@@ -154,7 +154,14 @@ BarWidget {
   property bool miniEqOpen: false
 
   visible: true
-  implicitWidth: row.implicitWidth + Style.space(14)
+  // Icon mode sizes to the same slot as every other bar icon by default, so
+  // it sits flush instead of keeping the padding the wider chip needs. The
+  // "iconWidth" setting (px) widens or narrows just that mode; 0 = one slot.
+  readonly property real iconModeWidth: {
+    const w = Number(root.setting("iconWidth", 0)) || 0
+    return w > 0 ? Style.space(w) : Style.bar.iconSlot
+  }
+  implicitWidth: sizeMode === "icon" ? iconModeWidth : row.implicitWidth + Style.space(14)
   implicitHeight: barSize
 
   // Nothing inside a popup surface gets keyboard focus automatically. Same
