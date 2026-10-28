@@ -51,6 +51,7 @@ BarWidget {
   //   full   everything above (the default)
   // Anything else falls back to full, so a typo never hides the widget.
   readonly property string sizeMode: {
+    if (root.uiSize !== "") return root.uiSize
     const s = String(root.setting("size", "full")).toLowerCase()
     return (s === "icon" || s === "title") ? s : "full"
   }
@@ -107,9 +108,35 @@ BarWidget {
   property bool ambientEnabled: root.ambientDefault
   readonly property string uiStatePath: Quickshell.env("HOME") + "/.local/state/ytwidget/ui.json"
 
+  // Bar-chip look chosen from the card below, remembered in the same file.
+  // They override the shell.json settings, so the card is the one place you
+  // need to touch. "" / -1 mean "not chosen here, use the setting".
+  property string uiSize: ""
+  property int uiIconWidth: -1
+
+  function saveUi() {
+    uiStateFile.setText(JSON.stringify({
+      ambientWave: root.ambientEnabled,
+      size: root.uiSize,
+      iconWidth: root.uiIconWidth
+    }) + "\n")
+  }
+
   function setAmbient(on) {
     root.ambientEnabled = !!on
-    uiStateFile.setText(JSON.stringify({ ambientWave: !!on }) + "\n")
+    root.saveUi()
+  }
+
+  function cycleSize() {
+    var order = ["icon", "title", "full"]
+    var next = order[(order.indexOf(root.sizeMode) + 1) % order.length]
+    root.uiSize = next
+    root.saveUi()
+  }
+
+  function setIconWidth(px) {
+    root.uiIconWidth = Math.round(px)
+    root.saveUi()
   }
 
   FileView {
@@ -124,6 +151,8 @@ BarWidget {
       try {
         var saved = JSON.parse(text() || "{}")
         if (typeof saved.ambientWave === "boolean") root.ambientEnabled = saved.ambientWave
+        root.uiSize = (saved.size === "icon" || saved.size === "title" || saved.size === "full") ? saved.size : ""
+        root.uiIconWidth = Number(saved.iconWidth) > 0 ? Number(saved.iconWidth) : -1
       } catch (e) {}
     }
   }
@@ -158,7 +187,7 @@ BarWidget {
   // it sits flush instead of keeping the padding the wider chip needs. The
   // "iconWidth" setting (px) widens or narrows just that mode; 0 = one slot.
   readonly property real iconModeWidth: {
-    const w = Number(root.setting("iconWidth", 0)) || 0
+    const w = root.uiIconWidth > 0 ? root.uiIconWidth : (Number(root.setting("iconWidth", 0)) || 0)
     return w > 0 ? Style.space(w) : Style.bar.iconSlot
   }
   // Size of the note glyph itself, in the bar's own icon-font units. 0 keeps
@@ -1290,6 +1319,50 @@ BarWidget {
             if (root.playing) root.ytService.pause()
             Qt.openUrlExternally(url)
           }
+        }
+      }
+
+      // How the chip looks on the bar. The button cycles icon, title, full;
+      // the slider sets the width of the icon-only chip. Both are remembered.
+      RowLayout {
+        width: parent.width
+        spacing: Style.space(8)
+
+        Chicklet {
+          iconText: root.sizeMode === "icon" ? "\u25aa" : root.sizeMode === "title" ? "\u25ac" : "\u25ad"
+          selected: root.sizeMode !== "full"
+          foreground: root.bar.foreground
+          tooltipText: "Bar size: " + root.sizeMode + ". Click to change"
+          onClicked: root.cycleSize()
+        }
+        Text {
+          text: root.sizeMode === "icon" ? "WIDTH" : "BAR SIZE"
+          color: Qt.darker(root.bar.foreground, 1.4)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
+        PanelSlider {
+          Layout.fillWidth: true
+          visible: root.sizeMode === "icon"
+          minimum: 20
+          maximum: 80
+          value: root.iconModeWidth / Style.space(1)
+          onMoved: function(v) { root.setIconWidth(v) }
+        }
+        Text {
+          visible: root.sizeMode === "icon"
+          text: Math.round(root.iconModeWidth / Style.space(1)) + " px"
+          color: Qt.darker(root.bar.foreground, 1.4)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
+        Text {
+          visible: root.sizeMode !== "icon"
+          Layout.fillWidth: true
+          text: root.sizeMode === "title" ? "Icon and title" : "Icon, title and controls"
+          color: Qt.darker(root.bar.foreground, 1.4)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
         }
       }
 
