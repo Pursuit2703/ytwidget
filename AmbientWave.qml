@@ -15,6 +15,15 @@ Item {
 
   property var levels: []
   property color color: Color.foreground
+  // Per-bar contrast against the wallpaper under it: tones[i] is 1 where the
+  // wallpaper is light. Empty means no sample yet, so every bar uses `color`.
+  property color darkColor: "#2d353b"
+  property var tones: []
+  function colorAt(i) {
+    var t = root.tones
+    if (!t || t.length !== root.bars) return root.color
+    return t[i] === 1 ? root.darkColor : root.color
+  }
   property real heightFraction: 0.62
 
   // Screen-space [start, end] ranges the bar leaves empty, measured by
@@ -136,7 +145,7 @@ Item {
           width: parent.width
           height: Math.max(1, root.maxBarHeight * root.peakAt(parent.band))
           radius: width / 2
-          color: root.color
+          color: root.colorAt(parent.index)
           opacity: root.ghostOpacity
 
           Behavior on height {
@@ -151,7 +160,7 @@ Item {
           width: parent.width
           height: Math.max(1, root.maxBarHeight * parent.level)
           radius: width / 2
-          color: root.color
+          color: root.colorAt(parent.index)
           // A little brighter on a hit. Small on purpose: enough to feel the
           // beat, not enough to read as flashing.
           opacity: 0.78 + 0.22 * parent.level

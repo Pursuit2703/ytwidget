@@ -805,6 +805,37 @@ BarWidget {
   readonly property var barWindow: root.QsWindow ? root.QsWindow.window : null
   readonly property var barScreen: barWindow ? barWindow.screen : null
 
+  // Light/dark wallpaper under each ambient bar, so each bar picks the colour
+  // that reads against what is actually behind it. Re-sampled when the
+  // wallpaper, screen or bar changes.
+  property var ambientTones: []
+  Process {
+    id: tonesProc
+    stdout: SplitParser {
+      onRead: function(line) {
+        var v = String(line).trim().split(/\s+/).map(Number)
+        root.ambientTones = v.length === 160 ? v : []
+      }
+    }
+  }
+  function refreshTones() {
+    if (!root.barScreen || tonesProc.running) return
+    tonesProc.command = ["/usr/bin/bash", Qt.resolvedUrl("scripts/strip-tones.sh").toString().replace("file://", ""),
+      root.barScreen.name, String(root.barSize), "160", root.bar ? root.bar.position : "top"]
+    tonesProc.running = true
+  }
+  FileView {
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme.name"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: tonesDebounce.restart()
+  }
+  // The theme name changes before the wallpaper link does; sampling at once
+  // reads the old wallpaper.
+  Timer { id: tonesDebounce; interval: 900; onTriggered: root.refreshTones() }
+  onBarScreenChanged: refreshTones()
+  Component.onCompleted: refreshTones()
+
   // The ambient spectrum behind the bar.
   //
   // WlrLayer.Bottom puts it above the wallpaper and below the bar, and the
@@ -834,7 +865,7 @@ BarWidget {
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.namespace: "omar-ytwidget-ambient"
-    WlrLayershell.layer: WlrLayer.Bottom
+    WlrLayershell.layer: root.bar && root.bar.transparent ? WlrLayer.Bottom : WlrLayer.Top
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
     // Visual-only, same as Omarchy's own bar-drag-ghost window (Bar.qml):
@@ -846,7 +877,9 @@ BarWidget {
     AmbientWave {
       anchors.fill: parent
       levels: root.ytService ? root.ytService.spectrumBands : []
-      color: root.bar ? root.bar.barForeground : "white"
+      color: root.bar ? root.bar.foreground : "white"
+      darkColor: root.bar ? root.bar.background : "#2d353b"
+      tones: root.bar && root.bar.transparent ? root.ambientTones : []
       heightFraction: root.ambientHeight
       gaps: root.ambientGaps
       opacity: root.hasTrack && root.playing && !root.ambientSilent ? root.ambientOpacity : 0
