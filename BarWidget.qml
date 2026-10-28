@@ -44,8 +44,28 @@ BarWidget {
   // Paused counts as "show me the controls" because a paused track is one you
   // are about to do something to; a playing one you only want to read.
   readonly property bool paused: hasTrack && !playing
-  readonly property bool showControls: hasTrack && (pillHover.hovered || paused)
-  readonly property bool showTitle: hasTrack && !showControls
+  // How much of the chip is drawn, set per bar entry in shell.json
+  // ({"id":"omar.ytwidget","size":"icon"}):
+  //   icon   the note alone, tinted while a track plays; the tooltip names it
+  //   title  the note and the scrolling title, no transport controls
+  //   full   everything above (the default)
+  // Anything else falls back to full, so a typo never hides the widget.
+  readonly property string sizeMode: {
+    const s = String(root.setting("size", "full")).toLowerCase()
+    return (s === "icon" || s === "title") ? s : "full"
+  }
+  readonly property bool showControls: sizeMode === "full" && hasTrack && (pillHover.hovered || paused)
+  readonly property bool showTitle: sizeMode !== "icon" && hasTrack && !showControls
+  // In title mode the note stays on screen, so the title starts after it.
+  // Icon mode has no title or controls to say what is happening, so the note
+  // itself does: accent while playing, dimmed when paused.
+  readonly property color noteColor: {
+    if (sizeMode !== "icon" || !hasTrack) return root.bar.barForeground
+    if (playing) return Color.accent
+    const f = root.bar.barForeground
+    return Qt.rgba(f.r, f.g, f.b, 0.55)
+  }
+  readonly property real titleInset: sizeMode === "title" ? Style.bar.iconSlot + Style.space(8) : 0
 
   // The chip holds one width for as long as a track is loaded, whatever it is
   // showing, so it never resizes under the pointer and never shoves the bar
@@ -321,7 +341,7 @@ BarWidget {
       //
       // With no track there is nothing to show but the note, and the slot
       // closes entirely — the one size change left, and the one worth seeing.
-      width: root.hasTrack || root.lastError !== ""
+      width: root.sizeMode !== "icon" && (root.hasTrack || root.lastError !== "")
         ? root.maxLabelWidth
         : Style.bar.iconSlot
       height: root.barSize
@@ -343,8 +363,8 @@ BarWidget {
         spacing: Style.space(8)
         // Shown whenever the controls are, and on its own when there is no
         // track at all — it is the way into the player either way.
-        enabled: root.showControls || !root.hasTrack
-        opacity: (root.showControls || !root.hasTrack) ? 1 : 0
+        enabled: root.showControls || !root.hasTrack || root.sizeMode !== "full"
+        opacity: (root.showControls || !root.hasTrack || root.sizeMode !== "full") ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
 
         // The note lives inside the slot, ahead of the transport, rather than
@@ -358,7 +378,7 @@ BarWidget {
           bar: root.bar
           text: root.musicGlyph
           fontSize: Style.bar.iconFont
-          foreground: root.lastError !== "" ? Color.urgent : root.bar.barForeground
+          foreground: root.lastError !== "" ? Color.urgent : root.noteColor
           fixedWidth: Style.bar.iconSlot
           fixedHeight: root.barSize
           tooltipText: root.lastError !== ""
@@ -373,7 +393,7 @@ BarWidget {
 
         WidgetButton {
           id: prevButton
-          visible: root.hasTrack
+          visible: root.hasTrack && root.sizeMode === "full"
           bar: root.bar
           text: "\u{f04ae}"
           fontSize: Style.bar.iconFont
@@ -387,7 +407,7 @@ BarWidget {
         }
         WidgetButton {
           id: playButton
-          visible: root.hasTrack
+          visible: root.hasTrack && root.sizeMode === "full"
           bar: root.bar
           text: root.hasTrack ? root.playIcon : "󰝚"
           fontSize: Style.bar.iconFont
@@ -406,7 +426,7 @@ BarWidget {
         }
         WidgetButton {
           id: nextButton
-          visible: root.hasTrack
+          visible: root.hasTrack && root.sizeMode === "full"
           bar: root.bar
           text: "\u{f04ad}"
           fontSize: Style.bar.iconFont
@@ -454,6 +474,7 @@ BarWidget {
       Item {
         id: marquee
         anchors.left: parent.left
+        anchors.leftMargin: root.titleInset
         opacity: root.showTitle ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 120 } }
         anchors.verticalCenter: parent.verticalCenter
@@ -469,7 +490,7 @@ BarWidget {
           maskSource: marqueeFade
         }
         height: titleA.implicitHeight
-        width: Math.max(0, Math.min(root.maxLabelWidth, titleA.implicitWidth))
+        width: Math.max(0, Math.min(root.maxLabelWidth - root.titleInset, titleA.implicitWidth))
 
         // An error outranks the track: it is the one thing here you cannot
         // act on from the bar, and it is why the title is stale or missing.
@@ -552,7 +573,7 @@ BarWidget {
         anchors.bottomMargin: Style.space(4)
         height: Math.max(1, Style.space(1))
         radius: height / 2
-        visible: root.hasTrack && !!root.bar && !root.bar.vertical
+        visible: root.hasTrack && root.sizeMode !== "icon" && !!root.bar && !root.bar.vertical
                  && root.ytService && root.ytService.durationMs > 0
         color: Qt.rgba(root.bar.barForeground.r, root.bar.barForeground.g,
                        root.bar.barForeground.b, 0.18)

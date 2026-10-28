@@ -32,6 +32,7 @@
     "defaults": {
       "idleShutdownMinutes": 15,
       "maxWidth": 128,
+      "size": "full",
       "miniResults": 12,
       "crossfadeMs": 500,
       "subtitleLang": "en",
@@ -53,6 +54,14 @@
         "step": 5,
         "defaultValue": 15,
         "description": "Minutes. Use 0 to keep the backend running after you pause."
+      },
+      {
+        "key": "size",
+        "type": "enum",
+        "label": "Bar size",
+        "options": ["icon", "title", "full"],
+        "defaultValue": "full",
+        "description": "icon: just the note, tinted while playing. title: note plus the scrolling title. full: also the hover transport controls."
       },
       {
         "key": "maxWidth",
