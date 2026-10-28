@@ -430,13 +430,12 @@ Item {
               }
             }
 
-            RowLayout {
+            Flow {
               Layout.fillWidth: true
               spacing: Style.space(8)
               Button { text: "Play all"; iconText: root.iconPlay; onClicked: root.playPage(false) }
               Button { text: "Shuffle"; iconText: root.iconShuffle; onClicked: root.playPage(true) }
               Button { text: "Add to queue"; iconText: root.iconQueueAdd; onClicked: root.addPageToQueue() }
-              Item { Layout.fillWidth: true }
               Button {
                 visible: !!root.page && root.page.id === "" && !root.page.virtual
                 text: "Save"
@@ -938,8 +937,15 @@ Item {
         Rectangle {
           Layout.fillWidth: true
           Layout.preferredHeight: Style.space(78)
+          Layout.minimumWidth: 0
           radius: Style.space(16)
           color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.06)
+          // What fits depends on the window: the window is user-resizable and
+          // tiling can make it narrow, and a row that does not fit pushes the
+          // whole layout past the window edge.
+          readonly property bool roomy: width >= Style.space(760)
+          readonly property bool medium: width >= Style.space(620)
+          readonly property bool tight: width < Style.space(500)
 
           RowLayout {
             anchors.fill: parent
@@ -962,8 +968,10 @@ Item {
             }
 
             ColumnLayout {
+              visible: parent.parent.medium
               Layout.preferredWidth: Style.space(190)
               Layout.maximumWidth: Style.space(190)
+              Layout.minimumWidth: 0
               spacing: Style.space(2)
               Label {
                 Layout.fillWidth: true
@@ -1023,6 +1031,7 @@ Item {
             }
 
             Label {
+              visible: parent.parent.roomy
               text: Api.formatTime(root.service ? root.service.positionMs : 0)
               color: root.fgDim
               font.family: Style.font.family
@@ -1030,13 +1039,14 @@ Item {
             }
             PanelSlider {
               Layout.fillWidth: true
-              Layout.minimumWidth: Style.space(80)
+              Layout.minimumWidth: Style.space(40)
               minimum: 0
               maximum: Math.max(1, root.service ? root.service.durationMs : 1)
               value: root.service ? root.service.positionMs : 0
               onMoved: function(v) { if (root.service) root.service.seek(v) }
             }
             Label {
+              visible: parent.parent.roomy
               text: Api.formatTime(root.service ? root.service.durationMs : 0)
               color: root.fgDim
               font.family: Style.font.family
@@ -1044,12 +1054,14 @@ Item {
             }
 
             Label {
+              visible: parent.parent.roomy
               text: "\u{f057e}"
               color: root.fgDim
               font.family: Style.font.family
               font.pixelSize: Style.font.icon
             }
             PanelSlider {
+              visible: parent.parent.roomy
               Layout.preferredWidth: Style.space(70)
               Layout.maximumWidth: Style.space(70)
               minimum: 0
@@ -1059,6 +1071,7 @@ Item {
             }
 
             FlatButton {
+              visible: !parent.parent.tight
               iconText: "\u{f0567}"
               selected: !!(root.service && root.service.videoActive)
               enabled: !!(root.service && root.service.hasTrack)
@@ -1067,6 +1080,7 @@ Item {
               onClicked: root.toggleVideo()
             }
             FlatButton {
+              visible: !parent.parent.tight
               iconText: "\u{f04c3}"
               selected: root.eqExpanded
               foreground: root.fg
