@@ -303,6 +303,38 @@ BarWidget {
     else ytService.showVideo("")
   }
 
+  // The pane under the transport shows one of: next (queue), recent
+  // (history), lists (smart + saved playlists), or a pasted playlist link.
+  property string miniTab: "next"
+  property var miniPreview: null          // { title, items } for a pasted playlist link
+  property bool miniPreviewBusy: false
+  // One height the card is built around, so it never changes size.
+  readonly property real miniPaneHeight: Style.space(150)
+  readonly property real miniCardHeight: Style.space(604)
+
+  function isPlaylistLink(text) {
+    return Api.isYouTubeLink(text) && /[?&]list=/.test(String(text))
+  }
+
+  function previewMiniLink() {
+    var link = root.miniSearchText.trim()
+    if (!link || !ytService) return
+    miniPreviewBusy = true
+    ytService.previewPlaylist(link, function(ok, data) {
+      miniPreviewBusy = false
+      miniPreview = ok && data && data.items && data.items.length > 0 ? data : null
+    })
+  }
+
+  function playMiniPreview(shuffle) {
+    if (!miniPreview || !ytService) return
+    if (shuffle) ytService.setShuffle(true)
+    ytService.playQueueFrom(miniPreview.items, 0)
+    miniPreview = null
+    root.miniSearchText = ""
+    root.miniTab = "next"
+  }
+
   function openMiniLink() {
     var link = root.miniSearchText.trim()
     if (!link || !ytService) return
@@ -1064,7 +1096,7 @@ BarWidget {
       anchors.topMargin: (barPos === "top" ? barThickness : 0) + Style.gapsOut
       anchors.rightMargin: (barPos === "right" ? barThickness : 0) + Style.gapsOut
       width: Style.space(320)
-      height: column.implicitHeight + contentTopInset + contentBottomInset
+      height: root.miniCardHeight
       radius: Style.cornerRadius
       color: Color.popups.background
       borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
@@ -1085,72 +1117,110 @@ BarWidget {
       focus: true
       Keys.onEscapePressed: root.popupOpen = false
 
+    CoverBlur {
+      // Reaches the card edges (the surface insets its children), so the
+      // blur has no visible rectangle of its own.
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.top: parent.top
+      anchors.leftMargin: Style.space(2) - card.contentLeftInset
+      anchors.rightMargin: Style.space(2) - card.contentRightInset
+      anchors.topMargin: Style.space(2) - card.contentTopInset
+      height: Style.space(230) + card.contentTopInset
+      source: root.ytService ? root.ytService.trackThumbnail : ""
+      strength: 0.55
+    }
+
     Column {
       id: column
       anchors.fill: parent
-      spacing: Style.space(10)
+      spacing: Style.space(12)
 
-      Rectangle {
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: Style.space(96)
-        height: Style.space(96)
-        radius: Style.cornerRadius
-        color: Qt.rgba(root.bar.barForeground.r, root.bar.barForeground.g, root.bar.barForeground.b, 0.06)
-        clip: true
-
-        Image {
-          anchors.fill: parent
-          visible: root.ytService && root.ytService.trackThumbnail !== ""
-          source: root.ytService ? root.ytService.trackThumbnail : ""
-          fillMode: Image.PreserveAspectCrop
-          asynchronous: true
-        }
+      // Header: what this is, and the way into the full player.
+      RowLayout {
+        width: parent.width
+        height: Style.space(26)
         Text {
-          anchors.centerIn: parent
-          visible: !root.ytService || root.ytService.trackThumbnail === ""
-          text: root.idleGlyph
-          color: root.bar.foreground
+          Layout.fillWidth: true
+          text: root.hasTrack ? (root.playing ? "NOW PLAYING" : "PAUSED") : "YT WIDGET"
+          color: Qt.darker(root.bar.foreground, 1.3)
           font.family: Style.font.family
-          font.pixelSize: Style.font.displayLarge
+          font.pixelSize: Style.font.caption
+          font.letterSpacing: 1.4
         }
-
-        // Click the artwork to toggle play/pause of the current track.
-        MouseArea {
-          anchors.fill: parent
-          enabled: root.hasTrack
-          cursorShape: root.hasTrack ? Qt.PointingHandCursor : Qt.ArrowCursor
-          onClicked: root.ytService && root.ytService.togglePlayback()
-        }
-      }
-
-      Text {
-        width: parent.width
-        horizontalAlignment: Text.AlignHCenter
-        textFormat: Text.PlainText
-        text: root.hasTrack ? root.title : "Nothing playing"
-        color: root.bar.foreground
-        font.family: Style.font.family
-        font.bold: true
-        font.pixelSize: Style.font.subtitle
-        elide: Text.ElideRight
-
-        MouseArea {
-          anchors.fill: parent
-          enabled: root.hasTrack
-          cursorShape: root.hasTrack ? Qt.PointingHandCursor : Qt.ArrowCursor
-          onClicked: root.ytService && root.ytService.togglePlayback()
+        FlatButton {
+          buttonSize: Style.space(26)
+          iconSize: Style.font.icon
+          iconText: "\u{f0293}"
+          foreground: root.bar.foreground
+          tooltipText: "Full player"
+          onClicked: root.openFullPlayer()
         }
       }
-      Text {
+
+      // Art beside the title, not above it, so the card stays short.
+      RowLayout {
         width: parent.width
-        visible: root.artist !== ""
-        horizontalAlignment: Text.AlignHCenter
-        textFormat: Text.PlainText
-        text: root.artist
-        color: Qt.darker(root.bar.foreground, 1.4)
-        font.family: Style.font.family
-        font.pixelSize: Style.font.caption
-        elide: Text.ElideRight
+        spacing: Style.space(14)
+
+        Rectangle {
+          Layout.preferredWidth: Style.space(112)
+          Layout.preferredHeight: Style.space(112)
+          radius: Style.space(12)
+          color: Qt.rgba(root.bar.barForeground.r, root.bar.barForeground.g, root.bar.barForeground.b, 0.08)
+          clip: true
+
+          Image {
+            anchors.fill: parent
+            visible: root.ytService && root.ytService.trackThumbnail !== ""
+            source: root.ytService ? root.ytService.trackThumbnail : ""
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+          }
+          Text {
+            anchors.fill: parent
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            visible: !root.ytService || root.ytService.trackThumbnail === ""
+            text: root.idleGlyph
+            color: root.bar.foreground
+            font.family: Style.font.family
+            font.pixelSize: Style.font.displayLarge
+          }
+          MouseArea {
+            anchors.fill: parent
+            enabled: root.hasTrack
+            cursorShape: root.hasTrack ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: root.ytService && root.ytService.togglePlayback()
+          }
+        }
+
+        Column {
+          Layout.fillWidth: true
+          spacing: Style.space(4)
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: root.hasTrack ? root.title : "Nothing playing"
+            color: root.bar.foreground
+            font.family: Style.font.family
+            font.bold: true
+            font.pixelSize: Style.font.subtitle
+            wrapMode: Text.Wrap
+            maximumLineCount: 3
+            elide: Text.ElideRight
+          }
+          Text {
+            width: parent.width
+            visible: root.artist !== ""
+            textFormat: Text.PlainText
+            text: root.artist
+            color: Qt.darker(root.bar.foreground, 1.3)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+          }
+        }
       }
 
       ColumnLayout {
@@ -1168,56 +1238,60 @@ BarWidget {
           Layout.fillWidth: true
           Text {
             text: Api.formatTime(root.ytService ? root.ytService.positionMs : 0)
-            color: Qt.darker(root.bar.foreground, 1.4)
+            color: Qt.darker(root.bar.foreground, 1.3)
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
           }
           Item { Layout.fillWidth: true }
           Text {
             text: Api.formatTime(root.ytService ? root.ytService.durationMs : 0)
-            color: Qt.darker(root.bar.foreground, 1.4)
+            color: Qt.darker(root.bar.foreground, 1.3)
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
           }
         }
       }
 
-      // Playback transport only. The view toggles used to share this row,
-      // which pushed it to 304 units inside a ~276 unit content box — that is
-      // what clipped the outer buttons against the card edge.
-      Row {
-        anchors.horizontalCenter: parent.horizontalCenter
-        spacing: Style.space(8)
+      // Transport: one filled disc, everything else flat.
+      RowLayout {
+        width: parent.width
+        spacing: 0
 
-        Chicklet {
-          iconText: "󰒟"
+        FlatButton {
+          iconText: "\u{f049f}"
           selected: !!(root.ytService && root.ytService.shuffle)
           foreground: root.bar.foreground
           tooltipText: "Shuffle"
           onClicked: root.ytService && root.ytService.setShuffle(!root.ytService.shuffle)
         }
-        Chicklet {
-          iconText: "󰒮"
+        Item { Layout.fillWidth: true }
+        FlatButton {
+          iconText: "\u{f04ae}"
+          iconSize: Style.font.iconLarge
           foreground: root.bar.foreground
           tooltipText: "Previous"
           onClicked: root.ytService && root.ytService.previous()
         }
-        Chicklet {
-          iconText: root.playing ? "\u{f03e4}" : "\u{f040a}"
-          chickletSize: Style.space(38)
+        Item { Layout.fillWidth: true }
+        FlatButton {
+          primary: true
+          buttonSize: Style.space(52)
           iconSize: Style.font.iconLarge
-          foreground: root.bar.foreground
+          iconText: root.playing ? "\u{f03e4}" : "\u{f040a}"
           tooltipText: root.playing ? "Pause" : "Play"
           onClicked: root.ytService && root.ytService.togglePlayback()
         }
-        Chicklet {
-          iconText: "󰒭"
+        Item { Layout.fillWidth: true }
+        FlatButton {
+          iconText: "\u{f04ad}"
+          iconSize: Style.font.iconLarge
           foreground: root.bar.foreground
           tooltipText: "Next"
           onClicked: root.ytService && root.ytService.next()
         }
-        Chicklet {
-          iconText: root.ytService && root.ytService.repeat === "track" ? "󰑘" : "󰑖"
+        Item { Layout.fillWidth: true }
+        FlatButton {
+          iconText: root.ytService && root.ytService.repeat === "track" ? "\u{f0458}" : "\u{f0456}"
           selected: root.ytService && root.ytService.repeat !== "off"
           foreground: root.bar.foreground
           tooltipText: "Repeat"
@@ -1225,15 +1299,17 @@ BarWidget {
         }
       }
 
+      // Volume and the four view toggles share one row.
       RowLayout {
         width: parent.width
         spacing: Style.space(8)
 
         Text {
-          text: "VOL"
-          color: Qt.darker(root.bar.foreground, 1.4)
+          text: "\u{f057e}"
+          textFormat: Text.PlainText
+          color: Qt.darker(root.bar.foreground, 1.2)
           font.family: Style.font.family
-          font.pixelSize: Style.font.caption
+          font.pixelSize: Style.font.icon
         }
         PanelSlider {
           Layout.fillWidth: true
@@ -1242,65 +1318,35 @@ BarWidget {
           value: root.ytService ? root.ytService.volume : 80
           onMoved: function(v) { if (root.ytService) root.ytService.setVolume(v) }
         }
-        Text {
-          text: (root.ytService ? root.ytService.volume : 80) + "%"
-          color: Qt.darker(root.bar.foreground, 1.4)
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
-        }
-      }
-
-      PanelSeparator { width: parent.width; foreground: root.bar.foreground }
-
-      // View toggles, sitting directly above the sections they reveal so the
-      // cause and its effect are next to each other. Kept apart from the
-      // transport row above: those act on playback, these only change what
-      // this card is showing.
-      Row {
-        anchors.horizontalCenter: parent.horizontalCenter
-        spacing: Style.space(8)
-
-        Chicklet {
-          iconText: "󰕧"
+        FlatButton {
+          buttonSize: Style.space(30)
+          iconText: "\u{f0567}"
           selected: !!(root.ytService && root.ytService.videoActive)
           enabled: !!(root.ytService && root.ytService.hasTrack)
           foreground: root.bar.foreground
-          tooltipText: root.ytService && root.ytService.videoActive
-                       ? "Close the video window"
-                       : "Watch the video"
+          tooltipText: root.ytService && root.ytService.videoActive ? "Close the video window" : "Watch the video"
           onClicked: root.toggleVideo()
         }
-        Chicklet {
-          iconText: "󰝚"
-          selected: root.miniQueueOpen
-          foreground: root.bar.foreground
-          tooltipText: root.miniQueueOpen ? "Hide queue" : "Show queue"
-          onClicked: root.miniQueueOpen = !root.miniQueueOpen
-        }
-        // U+F1970 is the waveform glyph — deliberately not the music note,
-        // which the queue toggle beside it already uses, nor the tune sliders
-        // the equaliser uses.
-        Chicklet {
+        FlatButton {
+          buttonSize: Style.space(30)
           iconText: "\u{f1970}"
           selected: root.ambientEnabled
           foreground: root.bar.foreground
-          tooltipText: root.ambientEnabled
-            ? "Hide the spectrum across the bar"
-            : "Show the spectrum across the bar"
+          tooltipText: root.ambientEnabled ? "Hide the spectrum across the bar" : "Show the spectrum across the bar"
           onClicked: root.setAmbient(!root.ambientEnabled)
         }
-        Chicklet {
-          iconText: "󰓃"
+        FlatButton {
+          buttonSize: Style.space(30)
+          iconText: "\u{f04c3}"
           selected: root.miniEqOpen
           foreground: root.bar.foreground
           tooltipText: root.miniEqOpen ? "Hide equaliser" : "Show equaliser"
           onClicked: root.miniEqOpen = !root.miniEqOpen
         }
-        // Open the current track on youtube.com at the same moment, and pause
-        // the local deck so the two never play over each other.
-        Chicklet {
+        FlatButton {
+          buttonSize: Style.space(30)
           iconText: "\u{f03cc}"
-          visible: !!(root.ytService && root.ytService.track && root.ytService.track.videoId)
+          enabled: !!(root.ytService && root.ytService.track && root.ytService.track.videoId)
           foreground: root.bar.foreground
           tooltipText: "Open in browser"
           onClicked: {
@@ -1315,16 +1361,386 @@ BarWidget {
         }
       }
 
-      // How the chip looks on the bar: compact (the note alone) or wide (the
-      // original chip with the scrolling title and the hover controls). One
-      // switch, remembered. The in-between "title" size stays available as a
-      // shell.json setting.
+      Segmented {
+        width: parent.width
+        foreground: root.bar.foreground
+        current: root.miniTab
+        model: [
+          { key: "next", label: "Up next" },
+          { key: "recent", label: "Recent" },
+          { key: "lists", label: "Lists" }
+        ]
+        onPicked: function(key) { root.miniTab = key; root.miniPreview = null }
+      }
+
+      // One fixed-height pane. Results, a pasted playlist, the equaliser and
+      // the video controls take it over while they are open, so the card
+      // itself never changes size.
+      Item {
+        id: pane
+        width: parent.width
+        height: root.miniPaneHeight
+        clip: true
+
+        readonly property bool showOptions: root.miniEqOpen || !!(root.ytService && root.ytService.videoActive)
+        readonly property bool showResults: !showOptions && root.miniSearchResults.length > 0
+        readonly property bool showPreview: !showOptions && !showResults && root.miniPreview !== null
+
+        // ---- equaliser and video controls
+        Flickable {
+          anchors.fill: parent
+          visible: pane.showOptions
+          contentHeight: optionsColumn.implicitHeight
+          boundsBehavior: Flickable.StopAtBounds
+          ScrollBar.vertical: ScrollBar {}
+
+          Column {
+            id: optionsColumn
+            width: parent.width
+            spacing: Style.space(10)
+
+            Column {
+              width: parent.width
+              spacing: Style.space(4)
+              visible: !!(root.ytService && root.ytService.videoActive)
+
+              RowLayout {
+                width: parent.width
+                spacing: Style.space(8)
+                Text {
+                  text: "QUALITY"
+                  color: Qt.darker(root.bar.foreground, 1.4)
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                }
+                Dropdown {
+                  Layout.fillWidth: true
+                  showLabel: false
+                  options: {
+                    var out = []
+                    var hs = root.ytService ? root.ytService.videoHeights : []
+                    for (var i = 0; i < hs.length; i++)
+                      out.push({ value: String(hs[i]), label: hs[i] + "p" })
+                    return out
+                  }
+                  value: root.ytService ? String(root.ytService.videoHeight) : ""
+                  foreground: root.bar.foreground
+                  onChanged: function(value) {
+                    if (root.ytService) root.ytService.setVideoQuality(parseInt(value, 10))
+                  }
+                }
+              }
+
+              RowLayout {
+                width: parent.width
+                spacing: Style.space(8)
+                Text {
+                  text: "SPEED"
+                  color: Qt.darker(root.bar.foreground, 1.4)
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                }
+                Dropdown {
+                  Layout.fillWidth: true
+                  showLabel: false
+                  options: {
+                    var out = []
+                    var sp = root.ytService ? root.ytService.videoSpeeds : []
+                    for (var i = 0; i < sp.length; i++)
+                      out.push({ value: String(sp[i]), label: (sp[i] === 1 ? "Normal" : sp[i] + "x") })
+                    return out
+                  }
+                  value: root.ytService ? String(root.ytService.videoSpeed) : "1"
+                  foreground: root.bar.foreground
+                  onChanged: function(value) {
+                    if (root.ytService) root.ytService.setVideoSpeed(parseFloat(value))
+                  }
+                }
+              }
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+              visible: root.miniEqOpen
+
+              // The visualiser belongs with the equaliser, not pinned under the
+              // volume slider: it is the display half of the same idea, and it is
+              // decoration the card should not spend height on by default.
+              SpectrumBar {
+                width: parent.width
+                compact: true
+                showLabels: false
+                levels: root.ytService ? root.ytService.spectrumBands : []
+                foreground: root.bar.foreground
+                accent: Color.accent
+              }
+
+              RowLayout {
+                width: parent.width
+                spacing: Style.space(8)
+
+                Text {
+                  text: "MODE"
+                  color: Qt.darker(root.bar.foreground, 1.4)
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                }
+                Dropdown {
+                  Layout.fillWidth: true
+                  showLabel: false
+                  options: root.ytService ? root.ytService.eqPresets : []
+                  // "Custom" is what the backend reports once a band has been
+                  // dragged by hand; it is a state, not something you can pick.
+                  value: root.ytService ? root.ytService.eq.preset : "Flat"
+                  foreground: root.bar.foreground
+                  onChanged: function(value) {
+                    if (root.ytService) root.ytService.setEqPreset(value)
+                  }
+                }
+              }
+
+              EqBar {
+                width: parent.width
+                compact: true
+                service: root.ytService
+                foreground: root.bar.foreground
+                accent: Color.accent
+                // The preset picker above replaces the cycle-through button.
+                showPreset: false
+              }
+            }
+          }
+        }
+
+        // ---- search results
+        ListView {
+          id: miniResultList
+          anchors.fill: parent
+          visible: pane.showResults
+          model: root.miniSearchResults
+          spacing: root.miniRowSpacing
+          clip: true
+          currentIndex: root.miniSelected
+          highlightRangeMode: ListView.ApplyRange
+          preferredHighlightBegin: 0
+          preferredHighlightEnd: height
+          ScrollBar.vertical: ScrollBar {}
+
+          delegate: TrackRow {
+            width: miniResultList.width
+            item: modelData
+            compact: true
+            fg: root.bar.foreground
+            highlighted: index === root.miniSelected
+            onPlayRequested: {
+              root.miniSelected = index
+              if (root.ytService) root.ytService.playNow(modelData)
+            }
+            onQueueRequested: root.ytService && root.ytService.addToQueue(modelData)
+          }
+        }
+
+        // ---- pasted playlist link
+        Column {
+          anchors.fill: parent
+          visible: pane.showPreview
+          spacing: Style.space(6)
+
+          RowLayout {
+            width: parent.width
+            spacing: Style.space(8)
+            Column {
+              Layout.fillWidth: true
+              Text {
+                width: parent.width
+                text: root.miniPreview ? (root.miniPreview.title || "Playlist") : ""
+                textFormat: Text.PlainText
+                color: root.bar.foreground
+                font.family: Style.font.family
+                font.bold: true
+                font.pixelSize: Style.font.body
+                elide: Text.ElideRight
+              }
+              Text {
+                text: root.miniPreview ? root.miniPreview.items.length + " tracks" : ""
+                color: Qt.darker(root.bar.foreground, 1.3)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+            }
+            FlatButton {
+              iconText: "\u{f049f}"
+              buttonSize: Style.space(32)
+              foreground: root.bar.foreground
+              tooltipText: "Shuffle the playlist"
+              onClicked: root.playMiniPreview(true)
+            }
+            FlatButton {
+              primary: true
+              iconText: "\u{f040a}"
+              buttonSize: Style.space(36)
+              tooltipText: "Play the playlist"
+              onClicked: root.playMiniPreview(false)
+            }
+          }
+
+          ListView {
+            width: parent.width
+            height: parent.height - Style.space(44)
+            clip: true
+            spacing: root.miniRowSpacing
+            model: root.miniPreview ? root.miniPreview.items : []
+            ScrollBar.vertical: ScrollBar {}
+            delegate: TrackRow {
+              width: ListView.view.width
+              item: modelData
+              compact: true
+              fg: root.bar.foreground
+              onPlayRequested: root.ytService && root.ytService.playQueueFrom(root.miniPreview.items, index)
+              onQueueRequested: root.ytService && root.ytService.addToQueue(modelData)
+            }
+          }
+        }
+
+        // ---- tabs
+        ListView {
+          id: tabList
+          anchors.fill: parent
+          visible: !pane.showOptions && !pane.showResults && !pane.showPreview
+          clip: true
+          spacing: root.miniRowSpacing
+          ScrollBar.vertical: ScrollBar {}
+          model: root.miniTab === "next" ? (root.ytService ? root.ytService.queue : [])
+               : root.miniTab === "recent" ? (root.ytService ? root.ytService.playHistory : [])
+               : (root.ytService ? root.ytService.playlists : [])
+
+          delegate: Loader {
+            width: tabList.width
+            sourceComponent: root.miniTab === "lists" ? listRow : trackRowComp
+            property var rowData: modelData
+            property int rowIndex: index
+          }
+
+          Text {
+            anchors.centerIn: parent
+            visible: tabList.count === 0
+            text: root.miniTab === "next" ? "Queue is empty"
+                : root.miniTab === "recent" ? "Nothing played yet" : "No playlists yet"
+            color: Qt.darker(root.bar.foreground, 1.4)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+        }
+
+        Component {
+          id: trackRowComp
+          TrackRow {
+            item: rowData
+            compact: true
+            fg: root.bar.foreground
+            highlighted: root.miniTab === "next" && rowIndex === (root.ytService ? root.ytService.queueIndex : -1)
+            queueGlyph: root.miniTab === "next" ? "\u{f0156}" : "\u{f0415}"
+            onPlayRequested: {
+              if (!root.ytService) return
+              if (root.miniTab === "next") root.ytService.playQueueFrom(root.ytService.queue, rowIndex)
+              else root.ytService.playNow(rowData)
+            }
+            onQueueRequested: {
+              if (!root.ytService) return
+              if (root.miniTab === "next") root.ytService.removeFromQueue(rowIndex)
+              else root.ytService.addToQueue(rowData)
+            }
+          }
+        }
+
+        Component {
+          id: listRow
+          Rectangle {
+            height: Style.space(40)
+            radius: Style.space(10)
+            color: listHover.containsMouse ? Style.hoverFillFor(root.bar.foreground, Color.accent) : "transparent"
+            RowLayout {
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(8)
+              anchors.rightMargin: Style.space(8)
+              spacing: Style.space(10)
+              Text {
+                text: "\u{f0cb8}"
+                font.family: Style.font.family
+                font.pixelSize: Style.font.icon
+                color: Color.accent
+              }
+              Text {
+                Layout.fillWidth: true
+                text: rowData.name
+                textFormat: Text.PlainText
+                color: root.bar.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                elide: Text.ElideRight
+              }
+              Text {
+                text: rowData.count + " tracks"
+                color: Qt.darker(root.bar.foreground, 1.4)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+            }
+            MouseArea {
+              id: listHover
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: {
+                if (!root.ytService) return
+                root.ytService.getPlaylist(rowData.id, function(ok, data) {
+                  if (ok && data && data.items && data.items.length > 0)
+                    root.miniPreview = { title: rowData.name, items: data.items }
+                })
+              }
+            }
+          }
+        }
+      }
+
+      // Search and the bar-chip switch.
       RowLayout {
         width: parent.width
         spacing: Style.space(8)
 
-        Chicklet {
-          iconText: root.sizeMode === "full" ? "\u25ad" : "\u25aa"
+        TextField {
+          id: miniSearchField
+          Layout.fillWidth: true
+          placeholderText: root.lastError !== "" ? root.lastError
+          : (root.ytService && root.ytService.backendReady ? "Search, or paste a link" : "Starting up…")
+          text: root.miniSearchText
+          onTextChanged: {
+            root.miniSearchText = text
+            if (root.miniSearchIsLink) {
+              miniLiveSearchTimer.stop()
+              if (root.isPlaylistLink(text)) previewTimer.restart()
+              else root.miniPreview = null
+            } else {
+              root.miniPreview = null
+              miniLiveSearchTimer.restart()
+            }
+          }
+          onAccepted: {
+            miniLiveSearchTimer.stop()
+            if (root.miniSearchIsLink) {
+              if (root.isPlaylistLink(text)) { root.previewMiniLink(); return }
+              root.openMiniLink(); return
+            }
+            if (root.miniSearchResults.length > 0) root.playSelectedResult()
+            else root.runMiniSearch(true)
+          }
+          Keys.onDownPressed: root.moveMiniSelection(1)
+          Keys.onUpPressed: root.moveMiniSelection(-1)
+        }
+        FlatButton {
+          buttonSize: Style.space(36)
+          iconText: root.sizeMode === "full" ? "\u25ac" : "\u25aa"
           selected: root.sizeMode === "full"
           foreground: root.bar.foreground
           tooltipText: root.sizeMode === "full"
@@ -1332,180 +1748,6 @@ BarWidget {
             : "Compact bar chip. Click for wide (title and controls)"
           onClicked: root.toggleWide()
         }
-        Text {
-          Layout.fillWidth: true
-          text: root.sizeMode === "full" ? "Wide: title and controls" : "Compact: icon only"
-          color: Qt.darker(root.bar.foreground, 1.4)
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
-        }
-      }
-
-      // Video controls, only while a window is actually open. Quality and
-      // speed are the two things YouTube exposes that mpv's own OSC does not,
-      // so they live here rather than being left to mpv keybindings.
-      Column {
-        width: parent.width
-        spacing: Style.space(4)
-        visible: !!(root.ytService && root.ytService.videoActive)
-
-        RowLayout {
-          width: parent.width
-          spacing: Style.space(8)
-          Text {
-            text: "QUALITY"
-            color: Qt.darker(root.bar.foreground, 1.4)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-          Dropdown {
-            Layout.fillWidth: true
-            showLabel: false
-            options: {
-              var out = []
-              var hs = root.ytService ? root.ytService.videoHeights : []
-              for (var i = 0; i < hs.length; i++)
-                out.push({ value: String(hs[i]), label: hs[i] + "p" })
-              return out
-            }
-            value: root.ytService ? String(root.ytService.videoHeight) : ""
-            foreground: root.bar.foreground
-            onChanged: function(value) {
-              if (root.ytService) root.ytService.setVideoQuality(parseInt(value, 10))
-            }
-          }
-        }
-
-        RowLayout {
-          width: parent.width
-          spacing: Style.space(8)
-          Text {
-            text: "SPEED"
-            color: Qt.darker(root.bar.foreground, 1.4)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-          Dropdown {
-            Layout.fillWidth: true
-            showLabel: false
-            options: {
-              var out = []
-              var sp = root.ytService ? root.ytService.videoSpeeds : []
-              for (var i = 0; i < sp.length; i++)
-                out.push({ value: String(sp[i]), label: (sp[i] === 1 ? "Normal" : sp[i] + "x") })
-              return out
-            }
-            value: root.ytService ? String(root.ytService.videoSpeed) : "1"
-            foreground: root.bar.foreground
-            onChanged: function(value) {
-              if (root.ytService) root.ytService.setVideoSpeed(parseFloat(value))
-            }
-          }
-        }
-      }
-
-      Column {
-        width: parent.width
-        spacing: Style.space(6)
-        visible: root.miniEqOpen
-
-        // The visualiser belongs with the equaliser, not pinned under the
-        // volume slider: it is the display half of the same idea, and it is
-        // decoration the card should not spend height on by default.
-        SpectrumBar {
-          width: parent.width
-          compact: true
-          showLabels: false
-          levels: root.ytService ? root.ytService.spectrumBands : []
-          foreground: root.bar.foreground
-          accent: Color.accent
-        }
-
-        RowLayout {
-          width: parent.width
-          spacing: Style.space(8)
-
-          Text {
-            text: "MODE"
-            color: Qt.darker(root.bar.foreground, 1.4)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-          Dropdown {
-            Layout.fillWidth: true
-            showLabel: false
-            options: root.ytService ? root.ytService.eqPresets : []
-            // "Custom" is what the backend reports once a band has been
-            // dragged by hand; it is a state, not something you can pick.
-            value: root.ytService ? root.ytService.eq.preset : "Flat"
-            foreground: root.bar.foreground
-            onChanged: function(value) {
-              if (root.ytService) root.ytService.setEqPreset(value)
-            }
-          }
-        }
-
-        EqBar {
-          width: parent.width
-          compact: true
-          service: root.ytService
-          foreground: root.bar.foreground
-          accent: Color.accent
-          // The preset picker above replaces the cycle-through button.
-          showPreset: false
-        }
-      }
-
-      Column {
-        width: parent.width
-        spacing: Style.space(2)
-        visible: root.miniQueueOpen
-
-        Repeater {
-          model: root.ytService ? root.ytService.queue.slice(0, 4) : []
-          TrackRow {
-            width: column.width
-            item: modelData
-            compact: true
-            fg: root.bar.foreground
-            highlighted: index === (root.ytService ? root.ytService.queueIndex : -1)
-            queueGlyph: "󰅖"
-            onPlayRequested: root.ytService && root.ytService.playQueueFrom(root.ytService.queue, index)
-            onQueueRequested: root.ytService && root.ytService.removeFromQueue(index)
-          }
-        }
-        Text {
-          visible: !root.ytService || root.ytService.queue.length === 0
-          text: "Queue is empty"
-          color: Qt.darker(root.bar.foreground, 1.5)
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
-        }
-      }
-
-      TextField {
-        id: miniSearchField
-        width: parent.width
-        placeholderText: "Search, or paste a YouTube link"
-        text: root.miniSearchText
-        onTextChanged: {
-          root.miniSearchText = text
-          // A link is only ever expanded on Enter — a playlist link replaces
-          // the queue, which must not happen mid-paste from the live timer.
-          if (root.miniSearchIsLink) miniLiveSearchTimer.stop()
-          else miniLiveSearchTimer.restart()
-        }
-        onAccepted: {
-          miniLiveSearchTimer.stop()
-          if (root.miniSearchIsLink) { root.openMiniLink(); return }
-          // Results are usually already in from live search — play the
-          // selected one straight away. If the user hit Enter before they
-          // landed, search now and play the first result when it arrives.
-          if (root.miniSearchResults.length > 0) root.playSelectedResult()
-          else root.runMiniSearch(true)
-        }
-        Keys.onDownPressed: root.moveMiniSelection(1)
-        Keys.onUpPressed: root.moveMiniSelection(-1)
       }
 
       Timer {
@@ -1515,69 +1757,14 @@ BarWidget {
         onTriggered: root.runMiniSearch(false)
       }
 
-      // Results scroll rather than stretch the card. As a plain Column every
-      // extra result pushed the card further down the screen, which is what
-      // kept the list down to a handful; capped at `miniVisibleResults` rows
-      // the card can ask for a dozen and stay the same size.
-      //
-      // ApplyRange over the full viewport is what keeps arrow-key selection
-      // on screen: the view scrolls just enough to hold the current row,
-      // instead of the selection walking off the bottom.
-      ListView {
-        id: miniResultList
-        width: parent.width
-        visible: root.miniSearchResults.length > 0
-        height: {
-          var shown = Math.min(root.miniSearchResults.length, root.miniVisibleResults)
-          return shown <= 0 ? 0
-            : shown * root.miniRowHeight + (shown - 1) * root.miniRowSpacing
-        }
-        model: root.miniSearchResults
-        spacing: root.miniRowSpacing
-        clip: true
-        currentIndex: root.miniSelected
-        highlightRangeMode: ListView.ApplyRange
-        preferredHighlightBegin: 0
-        preferredHighlightEnd: height
-        ScrollBar.vertical: ScrollBar {}
-
-        delegate: TrackRow {
-          width: miniResultList.width
-          item: modelData
-          compact: true
-          fg: root.bar.foreground
-          highlighted: index === root.miniSelected
-          onPlayRequested: {
-            root.miniSelected = index
-            if (root.ytService) root.ytService.playNow(modelData)
-          }
-          onQueueRequested: root.ytService && root.ytService.addToQueue(modelData)
-        }
-      }
-
-      PanelSeparator { width: parent.width; foreground: root.bar.foreground }
-
-      RowLayout {
-        width: parent.width
-        Text {
-          Layout.fillWidth: true
-          // Same order as the bar chip: the error wins, because "Starting up…"
-          // next to a backend that has already failed reads as a hang.
-          text: root.lastError !== ""
-            ? root.lastError
-            : (root.ytService && root.ytService.backendReady ? "" : "Starting up…")
-          color: root.lastError !== "" ? Color.urgent : Qt.darker(root.bar.foreground, 1.5)
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
-          elide: Text.ElideRight
-          wrapMode: Text.NoWrap
-        }
-        Button {
-          text: "Full player"
-          onClicked: root.openFullPlayer()
-        }
+      Timer {
+        id: previewTimer
+        interval: 450
+        repeat: false
+        onTriggered: root.previewMiniLink()
       }
     }
+
     }
     }
   }
