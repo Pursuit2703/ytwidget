@@ -58,14 +58,8 @@ BarWidget {
   readonly property bool showControls: sizeMode === "full" && hasTrack && (pillHover.hovered || paused)
   readonly property bool showTitle: sizeMode !== "icon" && hasTrack && !showControls
   // In title mode the note stays on screen, so the title starts after it.
-  // Icon mode has no title or controls to say what is happening, so the note
-  // itself does: accent while playing, dimmed when paused.
-  readonly property color noteColor: {
-    if (sizeMode !== "icon" || !hasTrack) return root.bar.barForeground
-    if (playing) return Color.accent
-    const f = root.bar.barForeground
-    return Qt.rgba(f.r, f.g, f.b, 0.55)
-  }
+  // The note takes the bar's own colour in every mode, like its neighbours.
+  readonly property color noteColor: root.bar.barForeground
   readonly property real titleInset: sizeMode === "title" ? Style.bar.iconSlot + Style.space(8) : 0
 
   // The chip holds one width for as long as a track is loaded, whatever it is
