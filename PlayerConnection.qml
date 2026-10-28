@@ -155,6 +155,8 @@ Item {
   // this just saves the result as a local playlist instead of loading the
   // queue. name is optional: the backend falls back to the playlist's own
   // title.
+  function previewPlaylist(url, callback) { send("preview_playlist", { url: url }, callback) }
+  function clearHistory(callback) { send("clear_history", {}, callback) }
   function importPlaylist(url, name, callback) { send("import_playlist", { url: url, name: name || "" }, callback) }
   function removeFromPlaylist(playlistId, videoId) {
     send("remove_from_playlist", { playlist_id: playlistId, video_id: videoId })

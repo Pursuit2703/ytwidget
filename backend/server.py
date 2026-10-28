@@ -587,6 +587,13 @@ class Backend:
             imported = urls_mod.import_playlist(str(message.get("url") or ""))
             name = str(message.get("name") or "").strip() or imported.get("title") or "Imported playlist"
             return playlists.create_playlist(name, imported.get("items"))
+        if command == "preview_playlist":
+            # Resolve a playlist link for viewing, without saving anything.
+            imported = urls_mod.import_playlist(str(message.get("url") or ""))
+            return {"title": imported.get("title") or "", "items": imported.get("items") or []}
+        if command == "clear_history":
+            self.local_history = play_history.clear()
+            return {}
         if command == "delete_playlist":
             playlists.delete_playlist(str(message.get("playlist_id") or ""))
             return {}

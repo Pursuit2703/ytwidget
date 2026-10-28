@@ -59,6 +59,8 @@ def list_playlists(path: Path | None = None) -> list[dict[str, Any]]:
             "name": entry.get("name", playlist_id),
             "count": len(items),
             "createdAt": entry.get("createdAt", 0),
+            # Up to four thumbnails, so a list can draw a 2x2 cover.
+            "covers": [str(row.get("thumbnail")) for row in items[:4] if row.get("thumbnail")],
         })
     out.sort(key=lambda row: row.get("createdAt", 0), reverse=True)
     return out

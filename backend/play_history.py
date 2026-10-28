@@ -7,6 +7,7 @@ instead of YouTube Music tracks.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -48,17 +49,39 @@ def save(rows: list[dict[str, Any]], path: Path | None = None) -> None:
 
 
 def remember(item: dict | None, existing: list[dict[str, Any]] | None = None,
-             path: Path | None = None) -> list[dict[str, Any]]:
+             path: Path | None = None, now: float | None = None) -> list[dict[str, Any]]:
+    """Put a track at the top of the history.
+
+    Each entry carries `playedAt` (epoch seconds of the latest play) and
+    `plays` (how many times it was started). Replaying a track moves it to the
+    top and keeps its count, so "most played" can be ranked from this file.
+    """
     track = dict(item or {})
     vid = video_id(track)
     if not vid:
         return list(existing) if existing is not None else load(path)
-    rows = [row for row in (existing if existing is not None else load(path))
-            if video_id(row) != vid]
+    previous = 0
+    rows = []
+    for row in (existing if existing is not None else load(path)):
+        if video_id(row) == vid:
+            try:
+                previous = max(previous, int(row.get("plays") or 1))
+            except (TypeError, ValueError):
+                previous = max(previous, 1)
+        else:
+            rows.append(row)
     track["videoId"] = vid
+    track["plays"] = previous + 1
+    track["playedAt"] = int(time.time() if now is None else now)
     if not str(track.get("externalUrl") or "").strip():
         track["externalUrl"] = watch_url(vid)
     rows.insert(0, track)
     rows = rows[:MAX_ITEMS]
     save(rows, path)
     return rows
+
+
+def clear(path: Path | None = None) -> list[dict[str, Any]]:
+    """Forget every play. Returns the (empty) history."""
+    save([], path)
+    return []

@@ -95,6 +95,8 @@ Item {
   function addToPlaylist(playlistId, item, callback) { conn.addToPlaylist(playlistId, item, callback) }
   function removeFromPlaylist(playlistId, videoId) { conn.removeFromPlaylist(playlistId, videoId) }
   function importPlaylist(url, name, callback) { conn.importPlaylist(url, name, callback) }
+  function previewPlaylist(url, callback) { conn.previewPlaylist(url, callback) }
+  function clearHistory(callback) { conn.clearHistory(callback) }
 
   PlayerConnection {
     id: conn
