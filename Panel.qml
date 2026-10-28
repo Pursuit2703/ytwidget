@@ -286,9 +286,16 @@ Item {
       anchors.fill: parent
       focus: true
 
+      // Content keeps a reading width and sits centred: on a wide or
+      // maximised window the search field, tabs and player bar stay a sane
+      // size instead of stretching into thin lines across the screen.
       ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: Style.space(16)
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.topMargin: Style.space(16)
+        anchors.bottomMargin: Style.space(16)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(parent.width - Style.space(32), Style.space(900))
         spacing: Style.space(12)
 
         // ---- Search, with a tag when the text is a playlist link ----
@@ -936,7 +943,7 @@ Item {
         // ---- Now playing: one row that never overflows ----
         Rectangle {
           Layout.fillWidth: true
-          Layout.preferredHeight: Style.space(78)
+          Layout.preferredHeight: Style.space(92)
           Layout.minimumWidth: 0
           radius: Style.space(16)
           color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.06)
@@ -954,9 +961,9 @@ Item {
             spacing: Style.space(12)
 
             Rectangle {
-              Layout.preferredWidth: Style.space(54)
-              Layout.preferredHeight: Style.space(54)
-              radius: Style.space(10)
+              Layout.preferredWidth: Style.space(68)
+              Layout.preferredHeight: Style.space(68)
+              radius: Style.space(12)
               color: root.rowFill
               clip: true
               Image {
@@ -969,8 +976,8 @@ Item {
 
             ColumnLayout {
               visible: parent.parent.medium
-              Layout.preferredWidth: Style.space(190)
-              Layout.maximumWidth: Style.space(190)
+              Layout.preferredWidth: Style.space(200)
+              Layout.maximumWidth: Style.space(200)
               Layout.minimumWidth: 0
               spacing: Style.space(2)
               Label {
@@ -1009,7 +1016,7 @@ Item {
               }
               FlatButton {
                 primary: true
-                buttonSize: Style.space(44)
+                buttonSize: Style.space(52)
                 iconSize: Style.font.iconLarge
                 iconText: root.service && root.service.playing ? root.iconPause : root.iconPlay
                 tooltipText: "Play / pause"
