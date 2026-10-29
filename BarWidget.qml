@@ -1055,10 +1055,11 @@ BarWidget {
 
   HyprlandFocusGrab {
     id: popupGrab
-    // The bar's own window is in the grab too, like the bar's built-in
-    // popups: a click on another bar icon goes straight through to it (and
-    // it closes this card via requestPopout) instead of being spent just
-    // dismissing the card.
+    // The bar's window is in the grab too, like the bar's own popups, so one
+    // click on another bar icon opens it (and closes this card through
+    // requestPopout). With two windows in a grab Hyprland may hand the
+    // keyboard to either, so the card also asks for the keyboard on demand
+    // (see the card's layer): clicking into it always gets the keystrokes.
     windows: root.QsWindow.window ? [popup, root.QsWindow.window] : [popup]
     active: root.popupOpen && !root.grabPaused
     onCleared: if (!root.grabPaused) root.popupOpen = false
@@ -1142,7 +1143,7 @@ BarWidget {
     color: "transparent"
     WlrLayershell.namespace: "omar-ytwidget-popup"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: root.popupOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Ignore
     // Only the card takes input. The rest of this full-screen layer used to
     // catch every click (to dismiss), which also ate clicks on the bar: you
