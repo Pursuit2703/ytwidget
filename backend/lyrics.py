@@ -481,6 +481,10 @@ class LyricsService:
                     if c["diff"] > MATCH_TOLERANCE_S and (c["synced"] or c["plain"]):
                         options.append({"kind": "synced" if c["synced"] else "plain", "cand": c})
 
+        # "Try another match" past the last option comes back to the first,
+        # so the button can never strand you on "No lyrics".
+        if options and other >= len(options):
+            other = 0
         tried = 0
         for index, opt in enumerate(options):
             if index < other:

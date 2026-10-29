@@ -189,5 +189,21 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual((result["status"], result["source"]), ("captions", "manual"))
 
 
+    def test_try_other_wraps_back_to_the_first_match(self):
+        def fetch(url):
+            if "timedtext" in url:
+                return {"events": [{"tStartMs": 0, "segs": [{"utf8": "[Music]"}]}]}
+            return rec("B", "A", 200, LRC) if "/get?" in url else []
+        video = FakeVideo({"en": "https://www.youtube.com/api/timedtext?v=x"}, {"en": "auto"})
+        item = {"videoId": "wrap", "name": "A - B", "subtitle": "A", "durationMs": 200000}
+        result, svc = run_service(item, fetch, video, tmp=self.tmp.name, other=True)
+        self.assertEqual(result["status"], "none")      # captions were music only
+        done = threading.Event()
+        svc._on_change = lambda: done.set() if svc.snapshot()["status"] != "loading" else None
+        svc.try_other()
+        done.wait(5)
+        self.assertEqual(svc.snapshot()["status"], "synced")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -102,7 +102,15 @@ Item {
     highlightMoveVelocity: -1
     header: Item { height: root.synced ? list.height / 2 : 0; width: 1 }
     footer: Item { height: root.synced ? list.height / 2 : Style.space(12); width: 1 }
-    ScrollBar.vertical: ScrollBar { visible: !root.compact && !root.synced }
+    // Always there on the right, so the lyrics can be dragged through.
+    // Holding it stops the view following the song; it glides back a few
+    // seconds after you let go.
+    ScrollBar.vertical: ScrollBar {
+      id: lyricsBar
+      policy: list.contentHeight > list.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
+      onPressedChanged: if (pressed) { root.userScrolling = true; backTimer.stop() } else backTimer.restart()
+      onPositionChanged: if (pressed) root.userScrolling = true
+    }
 
     onMovementStarted: { root.userScrolling = true; backTimer.restart() }
     WheelHandler {
@@ -134,7 +142,8 @@ Item {
         return Math.max(0.24, 0.82 - (distance - 1) * 0.2)
       }
 
-      width: ListView.view.width
+      // Room on the right for the scrollbar.
+      width: ListView.view.width - Style.space(12)
       // Pointing at a line only brightens it: nothing moves or resizes.
       height: Math.max(isBreak ? Style.space(root.compact ? 16 : 22) : 0, lineText.implicitHeight) + Style.space(4)
 
