@@ -1376,7 +1376,11 @@ BarWidget {
       }
 
       Segmented {
+        id: miniTabs
         width: parent.width
+        // The equaliser takes the tabs' row too while it is open, so it gets
+        // room to breathe and the card still keeps its size.
+        visible: !root.miniEqOpen
         foreground: root.bar.foreground
         current: root.miniTab
         model: [
@@ -1393,7 +1397,7 @@ BarWidget {
       Item {
         id: pane
         width: parent.width
-        height: root.miniPaneHeight
+        height: root.miniPaneHeight + (root.miniEqOpen ? miniTabs.implicitHeight + column.spacing : 0)
         clip: true
 
         readonly property bool showOptions: root.miniEqOpen || !!(root.ytService && root.ytService.videoActive)
@@ -1478,50 +1482,16 @@ BarWidget {
               spacing: Style.space(6)
               visible: root.miniEqOpen
 
-              // The visualiser belongs with the equaliser, not pinned under the
-              // volume slider: it is the display half of the same idea, and it is
-              // decoration the card should not spend height on by default.
-              SpectrumBar {
+              // The live sound and the ten bands in one control; presets as
+              // chips above it.
+              EqGraph {
                 width: parent.width
-                compact: true
-                showLabels: false
-                levels: root.ytService ? root.ytService.spectrumBands : []
-                foreground: root.bar.foreground
-                accent: Color.accent
-              }
-
-              RowLayout {
-                width: parent.width
-                spacing: Style.space(8)
-
-                Text {
-                  text: "MODE"
-                  color: Qt.darker(root.bar.foreground, 1.4)
-                  font.family: Style.font.family
-                  font.pixelSize: Style.font.caption
-                }
-                Dropdown {
-                  Layout.fillWidth: true
-                  showLabel: false
-                  options: root.ytService ? root.ytService.eqPresets : []
-                  // "Custom" is what the backend reports once a band has been
-                  // dragged by hand; it is a state, not something you can pick.
-                  value: root.ytService ? root.ytService.eq.preset : "Flat"
-                  foreground: root.bar.foreground
-                  onChanged: function(value) {
-                    if (root.ytService) root.ytService.setEqPreset(value)
-                  }
-                }
-              }
-
-              EqBar {
-                width: parent.width
+                height: pane.height
                 compact: true
                 service: root.ytService
                 foreground: root.bar.foreground
                 accent: Color.accent
-                // The preset picker above replaces the cycle-through button.
-                showPreset: false
+                fadeTo: Color.popups.background
               }
             }
           }

@@ -374,13 +374,14 @@ Item {
             { key: "playlists", label: "Playlists", glyph: "\u{f0cb8}" },
             { key: "recent", label: "Recent", glyph: "\u{f02da}" }
           ]
-          onPicked: function(key) { root.page = null; root.activeTab = key }
+          onPicked: function(key) { root.page = null; root.eqExpanded = false; root.activeTab = key }
         }
 
         // ---- Body ----
         Item {
           Layout.fillWidth: true
           Layout.fillHeight: true
+          visible: !root.eqExpanded
 
           // ===== playlist page (saved playlist, pasted link, or a smart list)
           ColumnLayout {
@@ -875,49 +876,59 @@ Item {
           }
         }
 
-        // ---- Spectrum + EQ (collapsible), straight from omamusic ----
-        ColumnLayout {
+        // ---- Equaliser: takes the body's place while it is open ----
+        Rectangle {
           Layout.fillWidth: true
+          Layout.fillHeight: true
           visible: root.eqExpanded
-          spacing: Style.space(4)
+          radius: Style.space(16)
+          color: root.cardFill
 
-          SpectrumBar {
-            Layout.fillWidth: true
-            levels: root.service ? root.service.spectrumBands : []
-            foreground: root.fg
-            accent: root.accent
-          }
-          RowLayout {
-            Layout.fillWidth: true
-            spacing: Style.space(8)
+          ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: Style.space(20)
+            spacing: Style.space(16)
 
-            Label {
-              text: "Mode"
-              color: root.fgDim
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
-            }
-            Dropdown {
-              Layout.preferredWidth: Style.space(180)
-              showLabel: false
-              options: root.service ? root.service.eqPresets : []
-              // "Custom" is what the backend reports once a band has been
-              // dragged by hand; it is a state, not something you can pick.
-              value: root.service ? root.service.eq.preset : "Flat"
-              foreground: root.fg
-              onChanged: function(value) {
-                if (root.service) root.service.setEqPreset(value)
+            RowLayout {
+              Layout.fillWidth: true
+              spacing: Style.space(10)
+              Rectangle {
+                Layout.preferredWidth: Style.space(32)
+                Layout.preferredHeight: Style.space(32)
+                radius: Style.space(9)
+                color: root.rowFillActive
+                Text {
+                  anchors.fill: parent
+                  horizontalAlignment: Text.AlignHCenter
+                  verticalAlignment: Text.AlignVCenter
+                  text: "\u{f066a}"
+                  color: root.accent
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.icon
+                }
+              }
+              SectionTitle { Layout.fillWidth: true; title: "Equaliser" }
+              Button {
+                text: "Reset"
+                enabled: !!root.service && root.service.eqPreset !== "Flat"
+                onClicked: if (root.service) root.service.setEqPreset("Flat")
+              }
+              FlatButton {
+                iconText: root.iconClose
+                foreground: root.fg
+                tooltipText: "Close"
+                onClicked: root.eqExpanded = false
               }
             }
-            Item { Layout.fillWidth: true }
-          }
-          EqBar {
-            Layout.fillWidth: true
-            service: root.service
-            foreground: root.fg
-            accent: root.accent
-            // The preset picker above replaces the cycle-through button.
-            showPreset: false
+
+            EqGraph {
+              Layout.fillWidth: true
+              Layout.fillHeight: true
+              service: root.service
+              foreground: root.fg
+              accent: root.accent
+              fadeTo: Color.background
+            }
           }
         }
 
