@@ -48,6 +48,7 @@ def load(path: Path | None = None) -> dict[str, Any] | None:
         "repeat": repeat,
         "position_ms": position_ms,
         "playing": bool(raw.get("playing")),
+        "volume": raw.get("volume"),
     })
 
 
@@ -89,6 +90,13 @@ def _clip(payload: dict[str, Any]) -> dict[str, Any]:
     repeat = str(payload.get("repeat") or "off")
     if repeat not in REPEAT_MODES:
         repeat = "off"
+    # Volume is kept so a restarted backend comes back at the level you
+    # left it, never at the louder default. Missing or bad means "unknown".
+    volume: int | None
+    try:
+        volume = max(0, min(100, int(payload["volume"]))) if payload.get("volume") is not None else None
+    except (TypeError, ValueError):
+        volume = None
     return {
         "items": items,
         "index": index,
@@ -96,4 +104,5 @@ def _clip(payload: dict[str, Any]) -> dict[str, Any]:
         "repeat": repeat,
         "position_ms": position_ms,
         "playing": bool(payload.get("playing")),
+        "volume": volume,
     }

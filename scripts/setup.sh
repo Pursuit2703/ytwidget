@@ -22,7 +22,8 @@ mkdir -p "$lib_dir" "$bin_dir" "$unit_dir"
 
 backend_files=(server.py protocol.py player.py search.py store.py
   play_history.py queue_session.py playlists.py spectrum.py audio_output.py
-  urls.py video.py audio_cache.py request_log.py yt_gate.py health.py vpn.py)
+  urls.py video.py audio_cache.py request_log.py yt_gate.py health.py vpn.py
+  lyrics.py)
 for name in "${backend_files[@]}"; do
   install -m 644 -- "$source_root/backend/$name" "$lib_dir/$name"
 done

@@ -58,7 +58,16 @@ Item {
   property bool videoReady: false
   property string lastError: ""
   property var spectrumBands: [0,0,0,0,0,0,0,0,0,0]
+  // When positionMs last arrived (Date.now()). Position only reaches us on
+  // irregular broadcasts, so anything that must follow playback closely (the
+  // lyrics) runs its own clock from here.
+  property double positionStampMs: 0
+  // { videoId, status, source, lines:[{ms,text}], offsetMs, choice, ... }.
+  // Replaced only when it really changes, so lists built on it keep their
+  // scroll position across the once-a-second state broadcasts.
+  property var lyrics: ({ videoId: "", status: "none", source: "", lines: [], offsetMs: 0 })
 
+  readonly property bool effectivePlaying: videoActive ? videoPlaying : playing
   readonly property bool hasTrack: !!track
   readonly property string trackTitle: track ? String(track.name || "") : ""
   readonly property string trackArtist: track ? String(track.subtitle || "") : ""
@@ -75,6 +84,15 @@ Item {
     volume = Number(state.volume !== undefined ? state.volume : volume)
     muted = !!state.muted
     positionMs = Number(state.position_ms || 0)
+    positionStampMs = Date.now()
+    if (state.lyrics) {
+      var l = state.lyrics
+      var o = lyrics
+      if (l.videoId !== o.videoId || l.status !== o.status || l.choice !== o.choice
+          || l.source !== o.source || (l.lines || []).length !== (o.lines || []).length
+          || l.offsetMs !== o.offsetMs)
+        lyrics = l
+    }
     durationMs = Number(state.duration_ms || 0)
     track = state.track || null
     queue = state.queue || []
@@ -123,6 +141,9 @@ Item {
   function next() { send("next", {}) }
   function previous() { send("previous", {}) }
   function seek(ms) { send("seek", { position_ms: ms }) }
+  function lyricsTryOther() { send("lyrics_try_other", {}) }
+  function setLyricsOffset(ms) { send("set_lyrics_offset", { offset_ms: ms }) }
+  function lyricsConfig(enabled, source) { send("lyrics_config", { enabled: enabled, source: source }) }
   function setVolume(value) { send("set_volume", { volume: value }) }
   function setCrossfadeMs(ms) { send("set_crossfade_ms", { ms: ms }) }
   // videoId is optional: omitted, the window shows whatever is playing and

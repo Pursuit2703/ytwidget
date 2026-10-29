@@ -93,6 +93,46 @@ BarWidget {
   // Ambient full-bar spectrum. Off by default: it paints across the whole
   // screen width, which is a bigger change to someone's desktop than a bar
   // widget has any business making uninvited.
+  // ---- lyrics
+  readonly property bool lyricsEnabled: String(root.setting("lyrics", "true")) !== "false"
+  readonly property bool lyricsInBar: lyricsEnabled && String(root.setting("lyricsInBar", "true")) !== "false"
+  readonly property string lyricsSource: {
+    var v = String(root.setting("lyricsSource", "auto"))
+    return (v === "lrclib" || v === "captions") ? v : "auto"
+  }
+  readonly property bool lyricsReady: lyricsEnabled && !!(ytService && ytService.lyrics)
+    && ["synced", "captions", "plain"].indexOf(ytService.lyrics.status) >= 0
+    && (ytService.lyrics.lines || []).length > 0
+  function sendLyricsConfig() {
+    if (ytService) ytService.lyricsConfig(root.lyricsEnabled, root.lyricsSource)
+  }
+  onLyricsEnabledChanged: sendLyricsConfig()
+  onLyricsSourceChanged: sendLyricsConfig()
+
+  // The line being sung, for the wide chip. Empty between lines and for
+  // songs without timed lyrics, so the title shows then.
+  LyricsClock {
+    id: barLyricsClock
+    service: root.ytService
+    active: root.lyricsInBar && root.sizeMode !== "icon" && root.hasTrack && root.playing
+  }
+  readonly property string barLyricLine: {
+    if (!barLyricsClock.active || barLyricsClock.index < 0) return ""
+    var line = barLyricsClock.lines[barLyricsClock.index]
+    return line ? String(line.text || "").trim() : ""
+  }
+
+  // The card opens on Lyrics when the song has them, unless a tab was picked
+  // by hand since the card opened.
+  property bool miniTabTouched: false
+  function pickMiniTabForLyrics() {
+    if (root.miniTabTouched) return
+    if (root.lyricsReady) root.miniTab = "lyrics"
+    else if (root.miniTab === "lyrics" && ytService && ytService.lyrics
+             && ytService.lyrics.status !== "loading") root.miniTab = "next"
+  }
+  onLyricsReadyChanged: if (root.popupOpen) pickMiniTabForLyrics()
+
   readonly property bool ambientDefault: String(root.setting("ambientWave", "false")) === "true"
   // The toggle in the hover controls is remembered in the widget's own state
   // file, so the spectrum stays on (or off) across shell restarts, plugin
@@ -195,7 +235,15 @@ BarWidget {
   // otherwise the field can look focused (blinking cursor) while keystrokes
   // never arrive.
   onPopupOpenChanged: {
+    // One popup at a time, like the bar's own: opening the card closes
+    // whatever else is open (the bar calls close() on us the same way).
+    if (root.bar) {
+      if (popupOpen) root.bar.requestPopout(root)
+      else if (root.bar.activePopout === root) root.bar.releasePopout(root)
+    }
     if (!popupOpen) return
+    root.miniTabTouched = false
+    root.pickMiniTabForLyrics()
     // Baseline for the dismiss watcher further down: the window that was
     // focused as the card came up. Opening the card does not disturb it — a
     // layer surface taking the keyboard grab leaves the focused toplevel
@@ -234,7 +282,10 @@ BarWidget {
   function openFullPlayer() {
     var payload = {
       search: root.miniSearchText,
-      results: root.miniSearchResults || []
+      results: root.miniSearchResults || [],
+      lyrics: root.lyricsEnabled,
+      lyricsSize: String(root.setting("lyricsSize", "normal")),
+      tab: root.miniTab === "lyrics" ? "lyrics" : ""
     }
     popupOpen = false
     toggleProcess.running = false
@@ -305,8 +356,8 @@ BarWidget {
   property var miniPreview: null          // { title, items } for a pasted playlist link
   property bool miniPreviewBusy: false
   // One height the card is built around, so it never changes size.
-  readonly property real miniPaneHeight: Style.space(150)
-  readonly property real miniCardHeight: Style.space(604)
+  readonly property real miniPaneHeight: Style.space(290)
+  readonly property real miniCardHeight: Style.space(744)
 
   function isPlaylistLink(text) {
     return Api.isYouTubeLink(text) && /[?&]list=/.test(String(text))
@@ -436,7 +487,10 @@ BarWidget {
         // resizing even though the total never changed. In here both the
         // title and this row start at the same left edge and simply cross-
         // fade: nothing moves at all.
-        WidgetButton {
+        // BarIconButton, like the bar's own icons: it centres the glyph by its
+        // painted ink, not its advance width, so the note sits on the same
+        // optical centre as its neighbours.
+        BarIconButton {
           id: noteButton
           bar: root.bar
           text: root.musicGlyph
@@ -570,7 +624,7 @@ BarWidget {
         readonly property string fullText: root.lastError !== ""
           ? root.lastError
           : (root.hasTrack
-            ? Api.barTrackText(root.title, root.artist, true, false)
+            ? (root.barLyricLine !== "" ? root.barLyricLine : Api.barTrackText(root.title, root.artist, true, false))
             : "")
         readonly property real gapPx: Style.space(28)
         readonly property bool overflowing: titleA.implicitWidth > width + 1
@@ -923,7 +977,7 @@ BarWidget {
   // reads the old wallpaper.
   Timer { id: tonesDebounce; interval: 900; onTriggered: root.refreshTones() }
   onBarScreenChanged: refreshTones()
-  Component.onCompleted: refreshTones()
+  Component.onCompleted: { refreshTones(); sendLyricsConfig() }
 
   // The ambient spectrum behind the bar.
   //
@@ -1001,7 +1055,11 @@ BarWidget {
 
   HyprlandFocusGrab {
     id: popupGrab
-    windows: [popup]
+    // The bar's own window is in the grab too, like the bar's built-in
+    // popups: a click on another bar icon goes straight through to it (and
+    // it closes this card via requestPopout) instead of being spent just
+    // dismissing the card.
+    windows: root.QsWindow.window ? [popup, root.QsWindow.window] : [popup]
     active: root.popupOpen && !root.grabPaused
     onCleared: if (!root.grabPaused) root.popupOpen = false
   }
@@ -1086,11 +1144,12 @@ BarWidget {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Ignore
-
-    MouseArea {
-      anchors.fill: parent
-      onClicked: root.popupOpen = false
-    }
+    // Only the card takes input. The rest of this full-screen layer used to
+    // catch every click (to dismiss), which also ate clicks on the bar: you
+    // had to click once to close the card and again to open Audio. Outside
+    // clicks now pass through; the focus grab below closes the card, and a
+    // bar icon closes it through requestPopout like the bar's own popups.
+    mask: Region { item: card }
 
     BorderSurface {
       id: card
@@ -1375,6 +1434,52 @@ BarWidget {
         }
       }
 
+      // Search and the bar-chip switch.
+      RowLayout {
+        width: parent.width
+        spacing: Style.space(8)
+
+        TextField {
+          id: miniSearchField
+          Layout.fillWidth: true
+          placeholderText: root.lastError !== "" ? root.lastError
+          : (root.ytService && root.ytService.backendReady ? "Search, or paste a link" : "Starting up…")
+          text: root.miniSearchText
+          onTextChanged: {
+            root.miniSearchText = text
+            if (root.miniSearchIsLink) {
+              miniLiveSearchTimer.stop()
+              if (root.isPlaylistLink(text)) previewTimer.restart()
+              else root.miniPreview = null
+            } else {
+              root.miniPreview = null
+              miniLiveSearchTimer.restart()
+            }
+          }
+          onAccepted: {
+            miniLiveSearchTimer.stop()
+            if (root.miniSearchIsLink) {
+              if (root.isPlaylistLink(text)) { root.previewMiniLink(); return }
+              root.openMiniLink(); return
+            }
+            if (root.miniSearchResults.length > 0) root.playSelectedResult()
+            else root.runMiniSearch(true)
+          }
+          Keys.onDownPressed: root.moveMiniSelection(1)
+          Keys.onUpPressed: root.moveMiniSelection(-1)
+        }
+        FlatButton {
+          buttonSize: Style.space(36)
+          iconText: root.sizeMode === "full" ? "\u{f084c}" : "\u{f084e}"
+          selected: root.sizeMode === "full"
+          foreground: root.bar.foreground
+          tooltipText: root.sizeMode === "full"
+            ? "Wide bar chip. Click for compact (icon only)"
+            : "Compact bar chip. Click for wide (title and controls)"
+          onClicked: root.toggleWide()
+        }
+      }
+
       Segmented {
         id: miniTabs
         width: parent.width
@@ -1387,8 +1492,8 @@ BarWidget {
           { key: "next", label: "Up next" },
           { key: "recent", label: "Recent" },
           { key: "lists", label: "Lists" }
-        ]
-        onPicked: function(key) { root.miniTab = key; root.miniPreview = null }
+        ].concat(root.lyricsEnabled ? [{ key: "lyrics", label: "Lyrics" }] : [])
+        onPicked: function(key) { root.miniTab = key; root.miniTabTouched = true; root.miniPreview = null }
       }
 
       // One fixed-height pane. Results, a pasted playlist, the equaliser and
@@ -1587,11 +1692,22 @@ BarWidget {
           }
         }
 
+        // ---- lyrics
+        LyricsView {
+          anchors.fill: parent
+          visible: !pane.showOptions && !pane.showResults && !pane.showPreview && root.miniTab === "lyrics"
+          compact: true
+          service: root.ytService
+          foreground: root.bar.foreground
+          accent: Color.accent
+          fadeTo: Color.popups.background
+        }
+
         // ---- tabs
         ListView {
           id: tabList
           anchors.fill: parent
-          visible: !pane.showOptions && !pane.showResults && !pane.showPreview
+          visible: !pane.showOptions && !pane.showResults && !pane.showPreview && root.miniTab !== "lyrics"
           clip: true
           spacing: root.miniRowSpacing
           ScrollBar.vertical: ScrollBar {}
@@ -1688,51 +1804,6 @@ BarWidget {
         }
       }
 
-      // Search and the bar-chip switch.
-      RowLayout {
-        width: parent.width
-        spacing: Style.space(8)
-
-        TextField {
-          id: miniSearchField
-          Layout.fillWidth: true
-          placeholderText: root.lastError !== "" ? root.lastError
-          : (root.ytService && root.ytService.backendReady ? "Search, or paste a link" : "Starting up…")
-          text: root.miniSearchText
-          onTextChanged: {
-            root.miniSearchText = text
-            if (root.miniSearchIsLink) {
-              miniLiveSearchTimer.stop()
-              if (root.isPlaylistLink(text)) previewTimer.restart()
-              else root.miniPreview = null
-            } else {
-              root.miniPreview = null
-              miniLiveSearchTimer.restart()
-            }
-          }
-          onAccepted: {
-            miniLiveSearchTimer.stop()
-            if (root.miniSearchIsLink) {
-              if (root.isPlaylistLink(text)) { root.previewMiniLink(); return }
-              root.openMiniLink(); return
-            }
-            if (root.miniSearchResults.length > 0) root.playSelectedResult()
-            else root.runMiniSearch(true)
-          }
-          Keys.onDownPressed: root.moveMiniSelection(1)
-          Keys.onUpPressed: root.moveMiniSelection(-1)
-        }
-        FlatButton {
-          buttonSize: Style.space(36)
-          iconText: root.sizeMode === "full" ? "\u{f084c}" : "\u{f084e}"
-          selected: root.sizeMode === "full"
-          foreground: root.bar.foreground
-          tooltipText: root.sizeMode === "full"
-            ? "Wide bar chip. Click for compact (icon only)"
-            : "Compact bar chip. Click for wide (title and controls)"
-          onClicked: root.toggleWide()
-        }
-      }
 
       Timer {
         id: miniLiveSearchTimer

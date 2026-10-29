@@ -44,7 +44,11 @@
       "vpnMode": "fallback",
       "ambientWave": false,
       "ambientOpacity": 55,
-      "ambientHeight": 62
+      "ambientHeight": 62,
+      "lyrics": true,
+      "lyricsInBar": true,
+      "lyricsSource": "auto",
+      "lyricsSize": "normal"
     },
     "schema": [
       {
@@ -61,7 +65,11 @@
         "key": "size",
         "type": "enum",
         "label": "Bar size",
-        "options": ["icon", "title", "full"],
+        "options": [
+          "icon",
+          "title",
+          "full"
+        ],
         "defaultValue": "full",
         "description": "icon: just the note, tinted while playing. title: note plus the scrolling title. full: also the hover transport controls."
       },
@@ -182,6 +190,34 @@
         "step": 5,
         "defaultValue": 62,
         "description": "Percent of the bar's height at full level."
+      },
+      {
+        "key": "lyrics",
+        "type": "boolean",
+        "label": "Lyrics",
+        "defaultValue": true,
+        "description": "Look up lyrics for the playing track and show them in a Lyrics tab. Off means no lookups at all."
+      },
+      {
+        "key": "lyricsInBar",
+        "type": "boolean",
+        "label": "Lyrics in the bar",
+        "defaultValue": true,
+        "description": "When the bar chip is wide, show the line being sung where the title is. Between lines, and for songs without lyrics, the title shows as usual."
+      },
+      {
+        "key": "lyricsSource",
+        "type": "string",
+        "label": "Lyrics source",
+        "defaultValue": "auto",
+        "description": "\"auto\" tries timed lyrics from lrclib.net first, then the video's own captions. \"lrclib\" or \"captions\" uses only that one."
+      },
+      {
+        "key": "lyricsSize",
+        "type": "string",
+        "label": "Lyrics size",
+        "defaultValue": "normal",
+        "description": "Size of the current line in the full player: \"small\", \"normal\" or \"large\"."
       }
     ]
   }

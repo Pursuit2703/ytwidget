@@ -54,6 +54,8 @@ Item {
   readonly property string trackArtist: conn.trackArtist
   readonly property string trackThumbnail: conn.trackThumbnail
   readonly property bool backendReady: conn.backendReady
+  readonly property double positionStampMs: conn.positionStampMs
+  readonly property var lyrics: conn.lyrics
 
   function ensureRunning() { conn.ensureRunning() }
   function search(query, limit, callback) { conn.search(query, limit, callback) }
@@ -70,6 +72,9 @@ Item {
   function next() { conn.next() }
   function previous() { conn.previous() }
   function seek(ms) { conn.seek(ms) }
+  function lyricsTryOther() { conn.lyricsTryOther() }
+  function setLyricsOffset(ms) { conn.setLyricsOffset(ms) }
+  function lyricsConfig(enabled, source) { conn.lyricsConfig(enabled, source) }
   function setVolume(value) { conn.setVolume(value) }
   function setCrossfadeMs(ms) { conn.setCrossfadeMs(ms) }
   function showVideo(videoId, callback) { conn.showVideo(videoId, callback) }

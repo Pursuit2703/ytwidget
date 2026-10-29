@@ -26,6 +26,7 @@ if str(HERE) not in sys.path:
 
 import audio_output
 import health
+import lyrics as lyrics_mod
 import vpn as vpn_mod
 import play_history
 import playlists
@@ -110,6 +111,11 @@ class Backend:
                                  on_ready=self._on_video_ready,
                                  on_pause_changed=self._on_video_pause_changed)
         self.local_history = play_history.load()
+        self.lyrics = lyrics_mod.LyricsService(
+            on_change=self.broadcast,
+            resolve_video=self.video_resolver.resolve,
+        )
+        self.lyrics.sub_lang = self.sub_lang
         self._last_broadcast = 0.0
         self._last_queue_save = 0.0
         self._resume_playing = False
@@ -156,6 +162,7 @@ class Backend:
             "error": self.error or self.player.error,
             "play_history": list(self.local_history),
             "playlists": playlists.list_playlists(),
+            "lyrics": self.lyrics.snapshot(),
         }
 
     def _send(self, client: socket.socket, data: bytes) -> None:
@@ -195,6 +202,8 @@ class Backend:
             self._clients[:] = living
 
     def _on_player_change(self) -> None:
+        # Cheap when the track has not changed; starts a lookup when it has.
+        self.lyrics.track_changed(self.player.current, self.player.duration_ms)
         now = time.time()
         if now - self._last_broadcast < 0.05:
             self._schedule_remember_queue()
@@ -273,6 +282,7 @@ class Backend:
                 "repeat": self.player.repeat,
                 "position_ms": self.player.position_ms,
                 "playing": bool(self.player.playing),
+                "volume": int(self.player.volume),
             }, self._queue_path)
         except OSError:
             return
@@ -288,6 +298,11 @@ class Backend:
 
     def _restore_queue_session(self) -> None:
         session = queue_session.load(self._queue_path)
+        saved_volume = (session or {}).get("volume")
+        if saved_volume is not None:
+            self.player.volume = int(saved_volume)
+            if self.player.volume > 0:
+                self.player.volume_before_mute = self.player.volume
         items = list((session or {}).get("items") or [])
         if items:
             self.player.restore_queue(
@@ -441,6 +456,7 @@ class Backend:
             self.sub_lang = str(message.get("lang") or video_mod.DEFAULT_SUB_LANG).strip() \
                 or video_mod.DEFAULT_SUB_LANG
             self.video_resolver.set_sub_lang(self.sub_lang)
+            self.lyrics.sub_lang = self.sub_lang
             return self.state()
         if command == "set_quality":
             kbps = int(message.get("kbps") or 320)
@@ -565,6 +581,18 @@ class Backend:
         if command == "set_eq_preset":
             self.player.set_eq_preset(str(message.get("name") or ""))
             return self.player.eq_snapshot()
+        if command == "lyrics_try_other":
+            self.lyrics.try_other()
+            return {}
+        if command == "set_lyrics_offset":
+            self.lyrics.set_offset(int(message.get("offset_ms") or 0))
+            return {}
+        if command == "lyrics_config":
+            self.lyrics.configure(
+                enabled=message.get("enabled") if "enabled" in message else None,
+                source=str(message.get("source") or "") or None,
+            )
+            return {}
         if command == "cycle_eq_preset":
             name = self.player.cycle_eq_preset()
             return self.player.eq_snapshot() | {"preset": name}

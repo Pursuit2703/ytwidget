@@ -38,6 +38,9 @@ Item {
   readonly property string iconNote: "󰝚"
 
   property string activeTab: "search"
+  // Lyrics settings arrive with the open payload from the bar widget.
+  property bool lyricsEnabled: true
+  property string lyricsSize: "normal"
   property string searchText: ""
   property var searchResults: []
   property bool searching: false
@@ -64,6 +67,11 @@ Item {
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") || ({}) } catch (e) { payload = ({}) }
 
+    if (payload.lyrics !== undefined) root.lyricsEnabled = !!payload.lyrics
+    if (typeof payload.lyricsSize === "string") root.lyricsSize = payload.lyricsSize
+    if (!root.lyricsEnabled && root.activeTab === "lyrics") root.activeTab = "search"
+    if (payload.tab === "lyrics" && root.lyricsEnabled) { root.page = null; root.activeTab = "lyrics" }
+
     var handed = typeof payload.search === "string" ? payload.search : ""
     if (handed.trim() !== "") {
       root.activeTab = "search"
@@ -84,6 +92,11 @@ Item {
     })
   }
   function close() { opened = false }
+
+  function nudgeLyrics(deltaMs) {
+    if (!service || !service.lyrics) return
+    service.setLyricsOffset(Number(service.lyrics.offsetMs || 0) + deltaMs)
+  }
 
   readonly property bool searchIsLink: Api.isYouTubeLink(root.searchText)
   readonly property bool searchIsPlaylist: searchIsLink && /[?&]list=/.test(root.searchText)
@@ -373,7 +386,7 @@ Item {
             { key: "queue", label: "Queue", glyph: root.iconNote },
             { key: "playlists", label: "Playlists", glyph: "\u{f0cb8}" },
             { key: "recent", label: "Recent", glyph: "\u{f02da}" }
-          ]
+          ].concat(root.lyricsEnabled ? [{ key: "lyrics", label: "Lyrics", glyph: "\u{f0369}" }] : [])
           onPicked: function(key) { root.page = null; root.eqExpanded = false; root.activeTab = key }
         }
 
@@ -807,6 +820,168 @@ Item {
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
               }
+            }
+          }
+
+          // ===== lyrics
+          RowLayout {
+            id: lyricsPage
+            anchors.fill: parent
+            visible: root.page === null && root.activeTab === "lyrics"
+            spacing: Style.space(28)
+
+            ColumnLayout {
+              Layout.preferredWidth: Style.space(250)
+              Layout.maximumWidth: Style.space(250)
+              Layout.alignment: Qt.AlignTop
+              visible: lyricsPage.width >= Style.space(620)
+              spacing: Style.space(14)
+
+              Rectangle {
+                Layout.preferredWidth: Style.space(250)
+                Layout.preferredHeight: Style.space(250)
+                radius: Style.space(16)
+                color: root.rowFill
+                clip: true
+                Image {
+                  anchors.fill: parent
+                  source: root.service ? root.service.trackThumbnail : ""
+                  fillMode: Image.PreserveAspectCrop
+                  asynchronous: true
+                }
+              }
+              ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.space(4)
+                Label {
+                  Layout.fillWidth: true
+                  text: root.service && root.service.hasTrack ? root.service.trackTitle : "Nothing playing"
+                  color: root.fg
+                  font.family: Style.font.family
+                  font.bold: true
+                  font.pixelSize: Style.font.body + 2
+                  wrapMode: Text.WordWrap
+                  maximumLineCount: 3
+                  elide: Text.ElideRight
+                }
+                Label {
+                  Layout.fillWidth: true
+                  text: root.service ? root.service.trackArtist : ""
+                  color: root.fgDim
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                  elide: Text.ElideRight
+                }
+              }
+              Rectangle {
+                visible: fullLyrics.sourceText !== ""
+                Layout.preferredHeight: Style.space(26)
+                Layout.preferredWidth: sourceLabel.implicitWidth + Style.space(22)
+                radius: height / 2
+                color: root.rowFillActive
+                Text {
+                  id: sourceLabel
+                  anchors.centerIn: parent
+                  text: (fullLyrics.synced ? "\u{f04e6}  " : "") + fullLyrics.sourceText
+                  color: root.accent
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                }
+              }
+
+              // Timing, wrong match, copy
+              Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: lyricTools.implicitHeight + Style.space(20)
+                radius: Style.space(14)
+                color: root.cardFill
+                visible: !!(root.service && root.service.hasTrack)
+                ColumnLayout {
+                  id: lyricTools
+                  anchors.fill: parent
+                  anchors.margins: Style.space(10)
+                  spacing: Style.space(6)
+
+                  RowLayout {
+                    Layout.fillWidth: true
+                    visible: fullLyrics.synced
+                    Label { Layout.fillWidth: true; text: "Timing"; color: root.fgDim; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                    FlatButton {
+                      buttonSize: Style.space(28)
+                      iconText: "\u{f0374}"
+                      foreground: root.fg
+                      tooltipText: "Lyrics earlier"
+                      onClicked: root.nudgeLyrics(-250)
+                    }
+                    Label {
+                      Layout.preferredWidth: Style.space(52)
+                      horizontalAlignment: Text.AlignHCenter
+                      text: {
+                        var ms = root.service && root.service.lyrics ? Number(root.service.lyrics.offsetMs || 0) : 0
+                        return (ms > 0 ? "+" : ms < 0 ? "\u2212" : "") + (Math.abs(ms) / 1000).toFixed(2).replace(/0$/, "") + "s"
+                      }
+                      color: root.fg
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                    }
+                    FlatButton {
+                      buttonSize: Style.space(28)
+                      iconText: "\u{f0415}"
+                      foreground: root.fg
+                      tooltipText: "Lyrics later"
+                      onClicked: root.nudgeLyrics(250)
+                    }
+                  }
+                  RowLayout {
+                    Layout.fillWidth: true
+                    Label { Layout.fillWidth: true; text: "Wrong song?"; color: root.fgDim; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                    Label {
+                      text: "Try another match"
+                      color: tryOtherArea.containsMouse ? root.accent : Qt.darker(root.accent, 1.15)
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                      MouseArea {
+                        id: tryOtherArea
+                        anchors.fill: parent
+                        anchors.margins: -Style.space(4)
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: if (root.service) root.service.lyricsTryOther()
+                      }
+                    }
+                  }
+                  RowLayout {
+                    Layout.fillWidth: true
+                    visible: fullLyrics.hasText
+                    Label { Layout.fillWidth: true; text: "Copy lyrics"; color: root.fgDim; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                    FlatButton {
+                      buttonSize: Style.space(28)
+                      iconText: "\u{f018f}"
+                      foreground: root.fg
+                      tooltipText: "Copy"
+                      onClicked: {
+                        var out = []
+                        var ls = fullLyrics.lines
+                        for (var i = 0; i < ls.length; i++) out.push(String(ls[i].text || ""))
+                        Quickshell.clipboardText = out.join("\n")
+                      }
+                    }
+                  }
+                }
+              }
+              Item { Layout.fillHeight: true }
+            }
+
+            LyricsView {
+              id: fullLyrics
+              Layout.fillWidth: true
+              Layout.fillHeight: true
+              service: root.service
+              size: root.lyricsSize
+              foreground: root.fg
+              accent: root.accent
+              fadeTo: Color.background
+              active: lyricsPage.visible && root.opened
             }
           }
 

@@ -406,9 +406,13 @@ class VideoResolver:
             entry.pop("_tbr", None)
 
         subs: dict[str, str] = {}
+        sub_kinds: dict[str, str] = {}
+        manual = info.get("subtitles") or {}
         for lang, tracks in (info.get("requested_subtitles") or {}).items():
             if isinstance(tracks, dict) and tracks.get("url"):
                 subs[str(lang)] = str(tracks["url"])
+                # Lyrics prefer the uploader's captions over automatic ones.
+                sub_kinds[str(lang)] = "manual" if lang in manual else "auto"
 
         duration = info.get("duration")
         return {
@@ -417,6 +421,7 @@ class VideoResolver:
             "heights": sorted(streams.keys(), reverse=True),
             "streams": streams,
             "subs": subs,
+            "subKinds": sub_kinds,
             "durationMs": int(float(duration) * 1000) if duration else 0,
         }
 
