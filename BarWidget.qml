@@ -312,7 +312,25 @@ BarWidget {
   function playSelectedResult() {
     if (!ytService || miniSearchResults.length === 0) return
     var i = Math.max(0, Math.min(miniSelected, miniSearchResults.length - 1))
-    ytService.playNow(miniSearchResults[i])
+    playFromSearch(miniSearchResults[i])
+  }
+
+  // Search results take the pane over while they are up. Picking a tab or
+  // playing a result puts the tabs back, so the Lyrics tab never sits
+  // selected over a list of results.
+  function clearMiniSearch() {
+    root.miniSearchText = ""
+    root.miniSearchResults = []
+    root.miniSelected = 0
+    root.miniPreview = null
+  }
+  function playFromSearch(item) {
+    if (!ytService) return
+    ytService.playNow(item)
+    clearMiniSearch()
+    // A new song: let the card move to its lyrics once they are found.
+    root.miniTabTouched = false
+    if (root.miniTab === "lyrics") root.miniTab = "next"
   }
 
   readonly property bool miniSearchIsLink: Api.isYouTubeLink(miniSearchText)
@@ -1494,7 +1512,7 @@ BarWidget {
           { key: "recent", label: "Recent" },
           { key: "lists", label: "Lists" }
         ].concat(root.lyricsEnabled ? [{ key: "lyrics", label: "Lyrics" }] : [])
-        onPicked: function(key) { root.miniTab = key; root.miniTabTouched = true; root.miniPreview = null }
+        onPicked: function(key) { root.miniTab = key; root.miniTabTouched = true; root.clearMiniSearch() }
       }
 
       // One fixed-height pane. Results, a pasted playlist, the equaliser and
@@ -1625,7 +1643,7 @@ BarWidget {
             highlighted: index === root.miniSelected
             onPlayRequested: {
               root.miniSelected = index
-              if (root.ytService) root.ytService.playNow(modelData)
+              root.playFromSearch(modelData)
             }
             onQueueRequested: root.ytService && root.ytService.addToQueue(modelData)
           }
