@@ -1701,6 +1701,7 @@ BarWidget {
           foreground: root.bar.foreground
           accent: Color.accent
           fadeTo: Color.popups.background
+          onOpenPlayerRequested: root.openFullPlayer()
         }
 
         // ---- tabs

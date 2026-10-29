@@ -24,6 +24,11 @@ QtObject {
 
   property real nowMs: 0
   property int index: -1
+  // How far through the current line we are (0..1), measured to the next
+  // line's start, and how long until the next line. Drive the word-by-word
+  // fill and the countdown dots in a break.
+  property real progress: 0
+  property real nextInMs: -1
 
   function tick() {
     if (!service) return
@@ -31,7 +36,22 @@ QtObject {
     if (playing && service.positionStampMs > 0)
       pos += Math.max(0, Math.min(2000, Date.now() - service.positionStampMs))
     nowMs = pos
-    index = synced ? lineAt(pos - offsetMs + leadMs) : -1
+    var t = pos - offsetMs + leadMs
+    index = synced ? lineAt(t) : -1
+    if (synced && lines.length > 0) {
+      var startMs = index >= 0 ? Number(lines[index].ms) : 0
+      var nextMs = index + 1 < lines.length ? Number(lines[index + 1].ms) : -1
+      if (nextMs > startMs) {
+        progress = Math.max(0, Math.min(1, (t - startMs) / (nextMs - startMs)))
+        nextInMs = Math.max(0, nextMs - t)
+      } else {
+        progress = 1
+        nextInMs = -1
+      }
+    } else {
+      progress = 0
+      nextInMs = -1
+    }
   }
 
   // Last line whose time has come (binary search; lines are sorted).
