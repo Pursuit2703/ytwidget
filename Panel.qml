@@ -840,14 +840,12 @@ Item {
               Rectangle {
                 Layout.preferredWidth: Style.space(250)
                 Layout.preferredHeight: Style.space(250)
-                radius: Style.space(16)
+                radius: Style.space(28)
                 color: root.rowFill
-                clip: true
-                Image {
+                RoundedImage {
                   anchors.fill: parent
+                  radius: parent.radius
                   source: root.service ? root.service.trackThumbnail : ""
-                  fillMode: Image.PreserveAspectCrop
-                  asynchronous: true
                 }
               }
               ColumnLayout {
@@ -1183,14 +1181,12 @@ Item {
             Rectangle {
               Layout.preferredWidth: Style.space(68)
               Layout.preferredHeight: Style.space(68)
-              radius: Style.space(12)
+              radius: Style.space(16)
               color: root.rowFill
-              clip: true
-              Image {
+              RoundedImage {
                 anchors.fill: parent
+                radius: parent.radius
                 source: root.service ? root.service.trackThumbnail : ""
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
               }
             }
 
