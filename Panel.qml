@@ -845,6 +845,7 @@ Item {
                 RoundedImage {
                   anchors.fill: parent
                   radius: parent.radius
+                  lifted: true
                   source: root.service ? root.service.trackThumbnail : ""
                 }
               }

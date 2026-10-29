@@ -1256,14 +1256,17 @@ BarWidget {
         spacing: Style.space(14)
 
         Rectangle {
-          Layout.preferredWidth: Style.space(112)
-          Layout.preferredHeight: Style.space(112)
-          radius: Style.space(20)
-          color: Qt.rgba(root.bar.barForeground.r, root.bar.barForeground.g, root.bar.barForeground.b, 0.08)
+          Layout.preferredWidth: Style.space(124)
+          Layout.preferredHeight: Style.space(124)
+          radius: Style.space(22)
+          color: root.ytService && root.ytService.trackThumbnail !== ""
+            ? "transparent"
+            : Qt.rgba(root.bar.barForeground.r, root.bar.barForeground.g, root.bar.barForeground.b, 0.08)
 
           RoundedImage {
             anchors.fill: parent
             radius: parent.radius
+            lifted: true
             visible: root.ytService && root.ytService.trackThumbnail !== ""
             source: root.ytService ? root.ytService.trackThumbnail : ""
           }

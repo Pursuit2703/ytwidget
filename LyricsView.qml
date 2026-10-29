@@ -111,7 +111,7 @@ Item {
     visible: root.hasText
     clip: true
     model: root.hasText ? root.lines : []
-    spacing: root.compact ? Style.space(4) : Style.space(10)
+    spacing: root.compact ? Style.space(9) : Style.space(14)
     interactive: true
     boundsBehavior: Flickable.StopAtBounds
     currentIndex: -1
@@ -179,8 +179,8 @@ Item {
       readonly property real restOpacity: {
         if (!root.synced) return 0.85
         if (current) return 1
-        if (passed) return Math.max(0.16, 0.42 - (distance - 1) * 0.1)
-        return Math.max(0.24, 0.82 - (distance - 1) * 0.2)
+        if (passed) return Math.max(0.14, 0.34 - (distance - 1) * 0.08)
+        return Math.max(0.22, 0.6 - (distance - 1) * 0.14)
       }
 
       // Room on the right for the scrollbar.
@@ -223,7 +223,9 @@ Item {
         text: lineItem.words
         // The line being sung is the accent colour, whole; no word-by-word
         // fill (lyrics are timed per line, not per word).
-        color: lineItem.current ? root.accent : (lineItem.hot ? Color.foreground : root.foreground)
+        // The sung line in the full text colour, the rest faded: brighter
+        // and easier to read than the muted accent.
+        color: lineItem.current ? Color.foreground : (lineItem.hot ? Color.foreground : root.foreground)
         opacity: lineItem.hot ? 1 : lineItem.restOpacity
         // One size and weight for every line: the current one changes colour
         // only, so nothing re-wraps or resizes as the song moves on.
