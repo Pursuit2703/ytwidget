@@ -241,7 +241,9 @@ BarWidget {
       if (popupOpen) root.bar.requestPopout(root)
       else if (root.bar.activePopout === root) root.bar.releasePopout(root)
     }
-    if (!popupOpen) return
+    if (!popupOpen) { root.grabIncludesBar = false; return }
+    root.grabIncludesBar = false
+    grabBarTimer.restart()
     root.miniTabTouched = false
     root.pickMiniTabForLyrics()
     // Baseline for the dismiss watcher further down: the window that was
@@ -1070,15 +1072,22 @@ BarWidget {
   // was focused before. Dropping the grab for a moment and taking it again
   // gives the card its focus back.
   property bool grabPaused: false
+  property bool grabIncludesBar: false
+  Timer {
+    id: grabBarTimer
+    interval: 300
+    onTriggered: root.grabIncludesBar = !cardHover.hovered
+  }
 
   HyprlandFocusGrab {
     id: popupGrab
-    // The bar's window is in the grab too, like the bar's own popups, so one
-    // click on another bar icon opens it (and closes this card through
-    // requestPopout). With two windows in a grab Hyprland may hand the
-    // keyboard to either, so the card also asks for the keyboard on demand
-    // (see the card's layer): clicking into it always gets the keystrokes.
-    windows: root.QsWindow.window ? [popup, root.QsWindow.window] : [popup]
+    // With two windows in a grab Hyprland hands the keyboard to either one,
+    // which is why typing sometimes went nowhere. So the grab holds only
+    // the card while it opens and whenever the pointer is on it (the card
+    // gets the keyboard), and adds the bar's window only while the pointer
+    // is elsewhere: a click on another bar icon then opens it in one go,
+    // and the keyboard stays with the card, which is still in the grab.
+    windows: root.grabIncludesBar && root.QsWindow.window ? [popup, root.QsWindow.window] : [popup]
     active: root.popupOpen && !root.grabPaused
     onCleared: if (!root.grabPaused) root.popupOpen = false
   }
@@ -1172,6 +1181,13 @@ BarWidget {
 
     BorderSurface {
       id: card
+      HoverHandler {
+        id: cardHover
+        onHoveredChanged: {
+          if (hovered) { grabBarTimer.stop(); root.grabIncludesBar = false }
+          else if (root.popupOpen) grabBarTimer.restart()
+        }
+      }
       // Clear the bar instead of covering it.
       //
       // This surface sits on the Overlay layer, above the bar's Top layer,
