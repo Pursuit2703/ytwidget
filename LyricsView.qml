@@ -70,13 +70,6 @@ Item {
     return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   }
 
-  readonly property color unsungColor: Qt.rgba(
-    accent.r * 0.5 + fadeTo.r * 0.5, accent.g * 0.5 + fadeTo.g * 0.5, accent.b * 0.5 + fadeTo.b * 0.5, 1)
-  function hex(c) {
-    function h(v) { var x = Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16); return x.length < 2 ? "0" + x : x }
-    return "#" + h(c.r) + h(c.g) + h(c.b)
-  }
-
   function formatTime(ms) {
     var s = Math.max(0, Math.floor(ms / 1000))
     return Math.floor(s / 60) + ":" + (s % 60 < 10 ? "0" : "") + (s % 60)
@@ -141,35 +134,6 @@ Item {
         return Math.max(0.24, 0.82 - (distance - 1) * 0.2)
       }
 
-      // Word-by-word fill for the line being sung. A line is sung over the
-      // start of its slot, not all of it, so the fill runs for about the time
-      // its words take and never longer than the gap to the next line.
-      readonly property real fill: {
-        if (!current) return 0
-        var count = words.split(/\s+/).length
-        var gap = clock.nextInMs >= 0 ? (clock.nowMs - clock.offsetMs + clock.leadMs) - Number(modelData.ms) + clock.nextInMs : 4000
-        var dur = Math.max(900, Math.min(gap * 0.92, count * 380 + 500))
-        var into = (clock.nowMs - clock.offsetMs + clock.leadMs) - Number(modelData.ms)
-        return Math.max(0, Math.min(1, into / dur))
-      }
-      readonly property string richText: {
-        var parts = words.split(/(\s+)/)
-        var total = 0
-        for (var i = 0; i < parts.length; i++) if (parts[i].trim() !== "") total++
-        var lit = Math.round(fill * total)
-        var seen = 0, sung = "", rest = ""
-        for (var j = 0; j < parts.length; j++) {
-          var piece = root.escapeHtml(parts[j])
-          if (parts[j].trim() !== "") seen++
-          if (seen <= lit && (parts[j].trim() !== "" || seen < lit)) sung += piece
-          else rest += piece
-        }
-        // StyledText takes <font color> with plain #rrggbb only, so the
-        // unsung part is the accent mixed toward the background by hand.
-        return "<font color='" + root.hex(root.accent) + "'>" + sung + "</font>"
-          + "<font color='" + root.hex(root.unsungColor) + "'>" + rest + "</font>"
-      }
-
       width: ListView.view.width
       // Pointing at a line only brightens it: nothing moves or resizes.
       height: Math.max(isBreak ? Style.space(root.compact ? 16 : 22) : 0, lineText.implicitHeight) + Style.space(4)
@@ -205,15 +169,16 @@ Item {
         wrapMode: Text.WordWrap
         maximumLineCount: root.compact ? 3 : 4
         elide: Text.ElideRight
-        textFormat: lineItem.current ? Text.StyledText : Text.PlainText
-        text: lineItem.current ? lineItem.richText : lineItem.words
-        color: lineItem.hot ? Color.foreground : root.foreground
+        textFormat: Text.PlainText
+        text: lineItem.words
+        // The line being sung is the accent colour, whole; no word-by-word
+        // fill (lyrics are timed per line, not per word).
+        color: lineItem.current ? root.accent : (lineItem.hot ? Color.foreground : root.foreground)
         opacity: lineItem.hot ? 1 : lineItem.restOpacity
         font.family: Style.font.family
         font.bold: lineItem.current
         font.pixelSize: !root.synced ? root.otherSize + (root.compact ? 0 : 2)
           : (lineItem.current ? root.currentSize : root.otherSize)
-        Behavior on font.pixelSize { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         Behavior on opacity { NumberAnimation { duration: 250 } }
       }
 
