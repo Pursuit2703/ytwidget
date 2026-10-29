@@ -110,6 +110,21 @@ Item {
       policy: list.contentHeight > list.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
       onPressedChanged: if (pressed) { root.userScrolling = true; backTimer.stop() } else backTimer.restart()
       onPositionChanged: if (pressed) root.userScrolling = true
+      // Drawn here: the default style's bar was all but invisible on the
+      // dark card.
+      width: Style.space(8)
+      z: 4
+      contentItem: Rectangle {
+        implicitWidth: Style.space(4)
+        radius: width / 2
+        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b,
+          lyricsBar.pressed ? 0.6 : (lyricsBar.hovered ? 0.45 : 0.28))
+      }
+      background: Rectangle {
+        implicitWidth: Style.space(4)
+        radius: width / 2
+        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06)
+      }
     }
 
     onMovementStarted: { root.userScrolling = true; backTimer.restart() }
