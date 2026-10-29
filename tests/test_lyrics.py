@@ -27,6 +27,20 @@ class NamesTest(unittest.TestCase):
                          "Daft Punk - Get Lucky")
         self.assertEqual(lyrics.clean_title("Song (Remix)"), "Song (Remix)")
 
+    def test_fancy_fonts_and_tilde_separator(self):
+        name = "𝙰𝚛𝚖𝚢 𝙳𝚛𝚎𝚊𝚖𝚎𝚛𝚜 ~ 𝙺𝚊𝚝𝚎 𝙱𝚞𝚜𝚑 (𝚂𝚕𝚘𝚠𝚎𝚍)"
+        self.assertEqual(lyrics.clean_title(name), "Army Dreamers ~ Kate Bush")
+        self.assertIn(("Army Dreamers", "Kate Bush"), lyrics.name_pairs(name, "Flabs:O"))
+        self.assertTrue(lyrics.speed_hint(name))
+        self.assertEqual(lyrics.clean_title("Song Name slowed + reverb"), "Song Name")
+
+    def test_name_score(self):
+        name, channel = "𝙰𝚛𝚖𝚢 𝙳𝚛𝚎𝚊𝚖𝚎𝚛𝚜 ~ 𝙺𝚊𝚝𝚎 𝙱𝚞𝚜𝚑 (𝚂𝚕𝚘𝚠𝚎𝚍)", "Flabs:O"
+        self.assertGreaterEqual(lyrics.name_score("Army Dreamers", "Kate Bush", name, channel), lyrics.NAME_STRONG)
+        self.assertLess(lyrics.name_score("Wuthering Heights", "Kate Bush", name, channel), lyrics.NAME_OK)
+        self.assertLess(lyrics.name_score("Love", "Someone", "Taylor Swift - Love Story", "TaylorSwiftVEVO"),
+                        lyrics.NAME_OK)
+
     def test_topic_channel_is_the_artist(self):
         self.assertEqual(lyrics.clean_artist("Linked Horizon - Topic"), "Linked Horizon")
 
@@ -62,6 +76,43 @@ class ParsingTest(unittest.TestCase):
         self.assertTrue(lyrics.is_music_only(music))
         words = [{"ms": i * 1000, "text": f"line {i}"} for i in range(6)]
         self.assertFalse(lyrics.is_music_only(words))
+
+
+class LanguageTest(unittest.TestCase):
+    def test_detect_lang(self):
+        cases = {
+            "en": ["Our little army boy", "Is coming home from the war", "I love you and you know it"],
+            "es": ["Yo no sé lo que me pasa", "Cuando tú me miras así", "Es el amor que me da la vida"],
+            "fr": ["Je ne sais pas pourquoi", "Tu es dans mon coeur", "Et moi je suis là pour toi"],
+            "ja": ["紅蓮の弓矢を放て", "僕らは生まれた時から"],
+            "ko": ["사랑해 너를 정말로", "우리 함께 걸어요"],
+            "ru": ["Я тебя люблю", "Ты моя мечта"],
+        }
+        for lang, texts in cases.items():
+            self.assertEqual(lyrics.detect_lang(texts), lang, texts)
+
+
+class LiningUpTest(unittest.TestCase):
+    def test_slowed_upload_is_lined_up_with_its_captions(self):
+        studio = [{"ms": i * 5000, "text": f"line {w} goes here now"} for i, w in
+                  enumerate(["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"])]
+        # The same words, sung 1.2x slower and 3 s later, one word at a time.
+        caption = []
+        for line in studio:
+            for k, word in enumerate(lyrics.words_of(line["text"])):
+                caption.append((word, int(line["ms"] * 1.2 + 3000 + k * 300)))
+        coverage, anchors = lyrics.match_words(studio, caption)
+        self.assertGreater(coverage, 0.9)
+        fit = lyrics.fit_timing(anchors)
+        self.assertAlmostEqual(fit["scale"], 1.2, places=2)
+        self.assertAlmostEqual(fit["shift"], 3000, delta=50)
+        self.assertEqual(lyrics.retime(studio, fit["scale"], fit["shift"])[2]["ms"], 15000)
+
+    def test_unrelated_words_give_no_fit(self):
+        studio = [{"ms": i * 5000, "text": f"line {i} goes here"} for i in range(8)]
+        caption = [(w, i * 400) for i, w in enumerate("something else entirely is being sung right here".split())]
+        coverage, anchors = lyrics.match_words(studio, caption)
+        self.assertIsNone(lyrics.fit_timing(anchors))
 
 
 class CandidatesTest(unittest.TestCase):
@@ -129,7 +180,7 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(result["status"], "synced")
         self.assertEqual(result["lines"][0], {"ms": 12500, "text": "First line"})
 
-    def test_cover_of_different_length_falls_back_to_captions(self):
+    def test_cover_of_different_length_shows_the_lyrics_untimed_before_auto_captions(self):
         def fetch(url):
             if "timedtext" in url:
                 self.assertIn("fmt=json3", url)
@@ -140,8 +191,20 @@ class ServiceTest(unittest.TestCase):
         video = FakeVideo({"en": "https://www.youtube.com/api/timedtext?v=x&fmt=vtt"}, {"en": "auto"})
         item = {"videoId": "cov", "name": "Band - Song (Cover)", "subtitle": "Someone", "durationMs": 260000}
         result, _ = run_service(item, fetch, video, tmp=self.tmp.name)
-        self.assertEqual(result["status"], "captions")
-        self.assertEqual(result["source"], "auto")
+        self.assertEqual((result["status"], result["source"]), ("plain", "lrclib"))
+        self.assertEqual([c["id"] for c in result["choices"]][-1], "yt:auto")
+
+    def test_a_different_song_of_the_same_length_is_not_taken(self):
+        def fetch(url):
+            if "timedtext" in url:
+                return {"events": [{"tStartMs": i * 2000, "segs": [{"utf8": f"sung line {i}"}]} for i in range(8)]}
+            if "/get?" in url:
+                return None
+            return [rec("Another Tune", "Other Band", 200, LRC)]
+        video = FakeVideo({"en": "https://www.youtube.com/api/timedtext?v=x&fmt=vtt"}, {"en": "auto"})
+        item = {"videoId": "diff", "name": "Band - Song", "subtitle": "Band", "durationMs": 200000}
+        result, _ = run_service(item, fetch, video, tmp=self.tmp.name)
+        self.assertEqual((result["status"], result["source"]), ("captions", "auto"))
         self.assertEqual(result["lines"][1]["ms"], 2000)
 
     def test_instrumental_and_music_only_captions_mean_none(self):
@@ -189,7 +252,7 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual((result["status"], result["source"]), ("captions", "manual"))
 
 
-    def test_try_other_wraps_back_to_the_first_match(self):
+    def test_captions_that_are_only_music_keep_the_lyrics(self):
         def fetch(url):
             if "timedtext" in url:
                 return {"events": [{"tStartMs": 0, "segs": [{"utf8": "[Music]"}]}]}
@@ -197,12 +260,40 @@ class ServiceTest(unittest.TestCase):
         video = FakeVideo({"en": "https://www.youtube.com/api/timedtext?v=x"}, {"en": "auto"})
         item = {"videoId": "wrap", "name": "A - B", "subtitle": "A", "durationMs": 200000}
         result, svc = run_service(item, fetch, video, tmp=self.tmp.name, other=True)
-        self.assertEqual(result["status"], "none")      # captions were music only
+        # Asked for YouTube's captions, found only "[Music]": the lyrics stay,
+        # and the list no longer offers YouTube.
+        self.assertEqual(result["status"], "synced")
+        self.assertEqual([c["id"] for c in result["choices"]], ["lrc:" + str(result["choice"]).split(":")[1]])
+
+    def test_translation_replaces_the_lines_and_keeps_timing(self):
+        def fetch(url):
+            return rec("B", "A", 200, LRC) if "/get?" in url else []
+        asked = []
+
+        def translate(texts, target, source):
+            asked.append((target, source))
+            return [f"[{target}] {t}" for t in texts]
+
         done = threading.Event()
-        svc._on_change = lambda: done.set() if svc.snapshot()["status"] != "loading" else None
-        svc.try_other()
-        done.wait(5)
-        self.assertEqual(svc.snapshot()["status"], "synced")
+        svc = lyrics.LyricsService(lambda: done.set(), FakeVideo(), fetch, Path(self.tmp.name), translate=translate)
+        svc.track_changed({"videoId": "tr", "name": "A - B", "subtitle": "A", "durationMs": 200000})
+        for _ in range(50):
+            if svc.snapshot()["status"] == "synced":
+                break
+            time.sleep(0.02)
+        svc.set_language("fr")
+        for _ in range(50):
+            if svc.snapshot()["translatedTo"] == "fr":
+                break
+            time.sleep(0.02)
+        result = svc.snapshot()
+        self.assertEqual(result["lines"][0], {"ms": 12500, "text": "[fr] First line"})
+        svc.set_language("")
+        self.assertEqual(svc.snapshot()["lines"][0]["text"], "First line")
+        # Cached: picking French again does not ask twice.
+        svc.set_language("fr")
+        self.assertEqual(svc.snapshot()["translatedTo"], "fr")
+        self.assertEqual(len(asked), 1)
 
 
 if __name__ == "__main__":

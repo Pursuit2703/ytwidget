@@ -909,19 +909,54 @@ Item {
                   elide: Text.ElideRight
                 }
               }
+              // Which match the lyrics are and what they were matched to.
+              Label {
+                Layout.fillWidth: true
+                visible: text !== ""
+                text: {
+                  var l = root.service ? root.service.lyrics : null
+                  if (!l || !l.title || (l.status !== "synced" && l.status !== "plain")) return ""
+                  var how = l.fit === "fit" ? " · lined up with the video" : (l.fit === "stretch" ? " · stretched to the video" : "")
+                  return "Lyrics of " + l.artist + " – " + l.title + how
+                }
+                color: root.fgDim
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption - 1
+                wrapMode: Text.WordWrap
+              }
+              // Source and language: opens the menu to switch either.
               Rectangle {
+                id: sourceChip
                 visible: fullLyrics.sourceText !== ""
                 Layout.preferredHeight: Style.space(26)
-                Layout.preferredWidth: sourceLabel.implicitWidth + Style.space(22)
+                Layout.preferredWidth: Math.min(sourceLabel.implicitWidth + Style.space(22), Style.space(250))
                 radius: height / 2
-                color: root.rowFillActive
+                color: sourceArea.containsMouse || lyricsMenu.opened
+                  ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.3) : root.rowFillActive
                 Text {
                   id: sourceLabel
                   anchors.centerIn: parent
-                  text: (fullLyrics.synced ? "\u{f04e6}  " : "") + fullLyrics.sourceText
+                  width: Math.min(implicitWidth, Style.space(228))
+                  elide: Text.ElideRight
+                  text: (fullLyrics.synced ? "\u{f04e6}  " : "") + fullLyrics.sourceText + "  \u{f0140}"
                   color: root.accent
                   font.family: Style.font.family
                   font.pixelSize: Style.font.caption
+                }
+                MouseArea {
+                  id: sourceArea
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: {
+                    lyricsMenu.y = sourceChip.height + Style.space(4)
+                    lyricsMenu.open()
+                  }
+                }
+                LyricsMenu {
+                  id: lyricsMenu
+                  service: root.service
+                  maxHeight: Math.max(Style.space(200), lyricsPage.height - sourceChip.y - sourceChip.height - Style.space(8))
                 }
               }
 

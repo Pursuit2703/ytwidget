@@ -29,12 +29,25 @@ Item {
   readonly property color dim: Qt.darker(foreground, 1.6)
 
   // Words for where the text came from, without jargon.
+  // Words for where the text came from and its language, without jargon.
   readonly property string sourceText: {
     if (!lyrics) return ""
-    if (status === "synced") return "Synced"
-    if (status === "captions") return lyrics.source === "auto" ? "From the video’s auto captions" : "From the video’s captions"
-    if (status === "plain") return "Not timed"
-    return ""
+    var kind = ""
+    if (status === "synced") kind = "Synced"
+    else if (status === "captions") kind = lyrics.source === "auto" ? "Auto captions" : "Video captions"
+    else if (status === "plain") kind = "Not timed"
+    else return ""
+    if (lyrics.translating) return kind + " · Translating…"
+    if (lyrics.translatedTo) return kind + " · " + String(lyrics.translatedName || lyrics.translatedTo)
+    if (lyrics.translateError) return kind + " · Can’t translate now"
+    if (lyrics.langName) return kind + " · " + lyrics.langName
+    return kind
+  }
+  // Short form for the mini card's language chip: "EN", "FR".
+  readonly property string langCode: {
+    if (!lyrics) return ""
+    var code = String(lyrics.translatedTo || lyrics.lang || "")
+    return code !== "" ? code.toUpperCase() : "Aa"
   }
 
   readonly property real currentSize: {
@@ -70,10 +83,13 @@ Item {
   // Following the song is a plain animated scroll to the current line.
   // (The ListView's own highlight tracking fought with lines changing size
   // and jumped.)
+  // Before the first line (the intro, or the song started over) it is the
+  // first line that waits in the middle, not wherever the view was left.
   function scrollToCurrent(animate) {
-    if (!root.synced || root.userScrolling || clock.index < 0 || !list.visible) return
-    var item = list.itemAtIndex(clock.index)
-    if (!item) { list.positionViewAtIndex(clock.index, ListView.Center); return }
+    if (!root.synced || root.userScrolling || !list.visible || root.lines.length === 0) return
+    var at = Math.max(0, clock.index)
+    var item = list.itemAtIndex(at)
+    if (!item) { list.positionViewAtIndex(at, ListView.Center); return }
     var target = item.y + item.height / 2 - list.height / 2
     target = Math.max(list.originY, Math.min(list.originY + list.contentHeight - list.height, target))
     if (!animate) { followAnim.stop(); list.contentY = target; return }
@@ -402,6 +418,19 @@ Item {
     }
   }
 
+  // ---- source / language menu (mini card; the full player has its own chip)
+  function openMenu() {
+    lyricsMenu.maxHeight = root.height - footer.height - Style.space(8)
+    lyricsMenu.x = root.width - lyricsMenu.width
+    lyricsMenu.y = Math.max(0, root.height - footer.height - Style.space(4) - lyricsMenu.height)
+    lyricsMenu.open()
+  }
+  LyricsMenu {
+    id: lyricsMenu
+    service: root.service
+    onHeightChanged: if (opened) y = Math.max(0, root.height - footer.height - Style.space(4) - height)
+  }
+
   // ---- where it came from (mini card)
   Item {
     id: footer
@@ -418,11 +447,40 @@ Item {
       font.family: Style.font.family
       font.pixelSize: Style.font.caption - 1
     }
+    // Source and language, once there is something to show.
+    Rectangle {
+      id: langChip
+      visible: root.hasText
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      width: langRow.implicitWidth + Style.space(14)
+      height: Style.space(18)
+      radius: height / 2
+      color: langArea.containsMouse || lyricsMenu.opened
+        ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.3)
+        : Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.16)
+      Row {
+        id: langRow
+        anchors.centerIn: parent
+        spacing: Style.space(3)
+        Text { text: "\u{f05ca}"; color: root.accent; font.family: Style.font.family; font.pixelSize: Style.font.caption - 1; anchors.verticalCenter: parent.verticalCenter }
+        Text { text: root.langCode; color: root.accent; font.family: Style.font.family; font.bold: true; font.pixelSize: Style.font.caption - 2; anchors.verticalCenter: parent.verticalCenter }
+        Text { text: "\u{f0140}"; color: root.accent; font.family: Style.font.family; font.pixelSize: Style.font.caption - 1; anchors.verticalCenter: parent.verticalCenter }
+      }
+      MouseArea {
+        id: langArea
+        anchors.fill: parent
+        anchors.margins: -Style.space(3)
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.openMenu()
+      }
+    }
     Text {
       id: otherLink
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      visible: root.status === "none" || root.status === "plain" || root.status === "captions" || root.status === "offline"
+      visible: !root.hasText && (root.status === "none" || root.status === "offline")
       text: root.status === "offline" ? "Retry" : "Try another match"
       color: otherArea.containsMouse ? root.accent : Qt.darker(root.accent, 1.15)
       font.family: Style.font.family

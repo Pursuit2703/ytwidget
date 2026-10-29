@@ -414,6 +414,23 @@ class VideoResolver:
                 # Lyrics prefer the uploader's captions over automatic ones.
                 sub_kinds[str(lang)] = "manual" if lang in manual else "auto"
 
+        # Every caption track the lyrics could use: the uploader's in any
+        # language, and the automatic ones in the video's own language
+        # ("en-orig"), not YouTube's machine translations of them.
+        language = str(info.get("language") or "")
+        caption_tracks: list[dict[str, str]] = []
+        auto = info.get("automatic_captions") or {}
+        for kind, table in (("manual", manual), ("auto", auto)):
+            for lang, formats in table.items():
+                if lang == "live_chat" or not isinstance(formats, list):
+                    continue
+                if kind == "auto" and not (str(lang).endswith("-orig") or (language and lang == language)):
+                    continue
+                url = next((f.get("url") for f in formats if isinstance(f, dict) and f.get("ext") == "json3"), None) \
+                    or next((f.get("url") for f in formats if isinstance(f, dict) and f.get("url")), None)
+                if url:
+                    caption_tracks.append({"lang": str(lang), "kind": kind, "url": str(url)})
+
         duration = info.get("duration")
         return {
             "videoId": video_id,
@@ -422,6 +439,8 @@ class VideoResolver:
             "streams": streams,
             "subs": subs,
             "subKinds": sub_kinds,
+            "captionTracks": caption_tracks,
+            "language": language,
             "durationMs": int(float(duration) * 1000) if duration else 0,
         }
 

@@ -90,7 +90,9 @@ Item {
       var o = lyrics
       if (l.videoId !== o.videoId || l.status !== o.status || l.choice !== o.choice
           || l.source !== o.source || (l.lines || []).length !== (o.lines || []).length
-          || l.offsetMs !== o.offsetMs)
+          || l.offsetMs !== o.offsetMs || l.translatedTo !== o.translatedTo
+          || l.translating !== o.translating || l.translateError !== o.translateError
+          || l.translateTo !== o.translateTo || (l.choices || []).length !== (o.choices || []).length)
         lyrics = l
     }
     durationMs = Number(state.duration_ms || 0)
@@ -142,6 +144,8 @@ Item {
   function previous() { send("previous", {}) }
   function seek(ms) { send("seek", { position_ms: ms }) }
   function lyricsTryOther() { send("lyrics_try_other", {}) }
+  function lyricsSelect(choice) { send("lyrics_select", { choice: choice }) }
+  function lyricsLanguage(lang) { send("lyrics_language", { lang: lang }) }
   function setLyricsOffset(ms) { send("set_lyrics_offset", { offset_ms: ms }) }
   function lyricsConfig(enabled, source) { send("lyrics_config", { enabled: enabled, source: source }) }
   function setVolume(value) { send("set_volume", { volume: value }) }

@@ -114,6 +114,7 @@ class Backend:
         self.lyrics = lyrics_mod.LyricsService(
             on_change=self.broadcast,
             resolve_video=self.video_resolver.resolve,
+            settings_path=store.config_dir() / "lyrics.json",
         )
         self.lyrics.sub_lang = self.sub_lang
         self._last_broadcast = 0.0
@@ -122,6 +123,8 @@ class Backend:
         self._queue_save_timer: threading.Timer | None = None
         self._queue_path = queue_session.queue_path()
         self._restore_queue_session()
+        # A restored track that is not playing yet still gets its lyrics.
+        self.lyrics.track_changed(self.player.current, self.player.duration_ms)
 
     def state(self) -> dict[str, Any]:
         track = self.player.snapshot_track()
@@ -583,6 +586,12 @@ class Backend:
             return self.player.eq_snapshot()
         if command == "lyrics_try_other":
             self.lyrics.try_other()
+            return {}
+        if command == "lyrics_select":
+            self.lyrics.select(str(message.get("choice") or "") or None)
+            return {}
+        if command == "lyrics_language":
+            self.lyrics.set_language(str(message.get("lang") or ""))
             return {}
         if command == "set_lyrics_offset":
             self.lyrics.set_offset(int(message.get("offset_ms") or 0))

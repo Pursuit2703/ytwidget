@@ -73,6 +73,8 @@ Item {
   function previous() { conn.previous() }
   function seek(ms) { conn.seek(ms) }
   function lyricsTryOther() { conn.lyricsTryOther() }
+  function lyricsSelect(choice) { conn.lyricsSelect(choice) }
+  function lyricsLanguage(lang) { conn.lyricsLanguage(lang) }
   function setLyricsOffset(ms) { conn.setLyricsOffset(ms) }
   function lyricsConfig(enabled, source) { conn.lyricsConfig(enabled, source) }
   function setVolume(value) { conn.setVolume(value) }
