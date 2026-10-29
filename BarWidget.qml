@@ -364,6 +364,39 @@ BarWidget {
     }
   }
 
+  // Keys while the card is open and the search box is not focused (Esc
+  // leaves the box, "/" goes back into it). Returns true when handled.
+  function cardKey(event) {
+    var svc = ytService
+    if (!svc) return false
+    if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) return false
+    var seekBy = function(ms) { svc.seek(Math.max(0, Math.min(svc.durationMs, svc.positionMs + ms))) }
+    switch (event.key) {
+    case Qt.Key_Space: svc.togglePlayback(); return true
+    case Qt.Key_N: svc.next(); return true
+    case Qt.Key_P: svc.previous(); return true
+    case Qt.Key_S: svc.setShuffle(!svc.shuffle); return true
+    case Qt.Key_R: svc.cycleRepeat(); return true
+    case Qt.Key_Left: seekBy(-5000); return true
+    case Qt.Key_Right: seekBy(5000); return true
+    case Qt.Key_Up: svc.setVolume(Math.min(100, svc.volume + 5)); return true
+    case Qt.Key_Down: svc.setVolume(Math.max(0, svc.volume - 5)); return true
+    case Qt.Key_M: svc.setVolume(svc.volume > 0 ? 0 : 50); return true
+    case Qt.Key_1: root.miniTab = "next"; root.miniTabTouched = true; root.clearMiniSearch(); return true
+    case Qt.Key_2: root.miniTab = "recent"; root.miniTabTouched = true; root.clearMiniSearch(); return true
+    case Qt.Key_3: root.miniTab = "lists"; root.miniTabTouched = true; root.clearMiniSearch(); return true
+    case Qt.Key_4:
+    case Qt.Key_L:
+      if (root.lyricsEnabled) { root.miniTab = "lyrics"; root.miniTabTouched = true; root.clearMiniSearch() }
+      return true
+    case Qt.Key_E: root.miniEqOpen = !root.miniEqOpen; return true
+    case Qt.Key_V: root.toggleVideo(); return true
+    case Qt.Key_F: root.openFullPlayer(); return true
+    case Qt.Key_Slash: miniSearchField.forceActiveFocus(); return true
+    }
+    return false
+  }
+
   function toggleVideo() {
     if (!ytService || !ytService.hasTrack) return
     if (ytService.videoActive) ytService.hideVideo()
@@ -1224,7 +1257,10 @@ BarWidget {
       anchors.bottomMargin: card.contentBottomInset
       anchors.leftMargin: card.contentLeftInset
       focus: true
+      id: cardScope
+      // Esc: first leaves the search box (so the keys below work), then closes.
       Keys.onEscapePressed: root.popupOpen = false
+      Keys.onPressed: function(event) { if (root.cardKey(event)) event.accepted = true }
 
     CoverBlur {
       // Reaches the card edges (the surface insets its children), so the
@@ -1503,6 +1539,7 @@ BarWidget {
           }
           Keys.onDownPressed: root.moveMiniSelection(1)
           Keys.onUpPressed: root.moveMiniSelection(-1)
+          Keys.onEscapePressed: function(event) { cardScope.forceActiveFocus(); event.accepted = true }
         }
         FlatButton {
           buttonSize: Style.space(36)

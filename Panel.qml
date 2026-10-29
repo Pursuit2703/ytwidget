@@ -93,6 +93,38 @@ Item {
   }
   function close() { opened = false }
 
+  // Keys while the search box is not focused (Esc leaves it, "/" goes back
+  // in). Returns true when handled.
+  function playerKey(event) {
+    var svc = service
+    if (!svc) return false
+    if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) return false
+    var seekBy = function(ms) { svc.seek(Math.max(0, Math.min(svc.durationMs, svc.positionMs + ms))) }
+    var tab = function(key) { root.page = null; root.eqExpanded = false; root.activeTab = key }
+    switch (event.key) {
+    case Qt.Key_Space: svc.togglePlayback(); return true
+    case Qt.Key_N: svc.next(); return true
+    case Qt.Key_P: svc.previous(); return true
+    case Qt.Key_S: svc.setShuffle(!svc.shuffle); return true
+    case Qt.Key_R: svc.cycleRepeat(); return true
+    case Qt.Key_Left: seekBy(-5000); return true
+    case Qt.Key_Right: seekBy(5000); return true
+    case Qt.Key_Up: svc.setVolume(Math.min(100, svc.volume + 5)); return true
+    case Qt.Key_Down: svc.setVolume(Math.max(0, svc.volume - 5)); return true
+    case Qt.Key_M: svc.setVolume(svc.volume > 0 ? 0 : 50); return true
+    case Qt.Key_1: tab("search"); return true
+    case Qt.Key_2: tab("queue"); return true
+    case Qt.Key_3: tab("playlists"); return true
+    case Qt.Key_4: tab("recent"); return true
+    case Qt.Key_5:
+    case Qt.Key_L: if (root.lyricsEnabled) tab("lyrics"); return true
+    case Qt.Key_E: root.eqExpanded = !root.eqExpanded; return true
+    case Qt.Key_V: root.toggleVideo(); return true
+    case Qt.Key_Slash: tab("search"); searchField.forceActiveFocus(); return true
+    }
+    return false
+  }
+
   function nudgeLyrics(deltaMs) {
     if (!service || !service.lyrics) return
     service.setLyricsOffset(Number(service.lyrics.offsetMs || 0) + deltaMs)
@@ -300,8 +332,12 @@ Item {
     }
 
     FocusScope {
+      id: playerScope
       anchors.fill: parent
       focus: true
+      // Esc: first leaves the search box (so the keys work), then closes.
+      Keys.onEscapePressed: root.close()
+      Keys.onPressed: function(event) { if (root.playerKey(event)) event.accepted = true }
 
       // Content keeps a reading width and sits centred: on a wide or
       // maximised window the search field, tabs and player bar stay a sane
@@ -336,6 +372,7 @@ Item {
               } else liveSearchTimer.restart()
             }
             onAccepted: root.submitSearchField()
+            Keys.onEscapePressed: function(event) { playerScope.forceActiveFocus(); event.accepted = true }
           }
           Rectangle {
             visible: root.searchIsPlaylist

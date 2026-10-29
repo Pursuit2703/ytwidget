@@ -167,3 +167,29 @@ MIT
 - Full player: Search / Queue / Playlists / Recent tabs. A pasted playlist link opens a playlist page (Play all, Shuffle, Add to queue, Save) and nothing is saved or played until you press a button. Recent is grouped by day with Play all and Clear history. Most played is ranked from the `plays` counter in `play-history.json`.
 - Backend commands added: `preview_playlist` (resolve a link without saving), `clear_history`. History entries now carry `playedAt` and `plays`; playlists list `covers`.
 - The daemon runs from `~/.local/lib/ytwidget`, a copy of `backend/`. After changing anything in `backend/`, run `scripts/setup.sh` and restart the daemon, or the UI will talk to the old code.
+
+## Keyboard
+
+Inside the card and the player, while the search box is not focused
+(`Esc` leaves the box, `/` goes back into it, `Esc` again closes):
+
+| Key | Does |
+|---|---|
+| `Space` | play / pause |
+| `N` / `P` | next / previous |
+| `S` / `R` | shuffle / repeat |
+| `←` / `→` | seek -5 s / +5 s |
+| `↑` / `↓` | volume +5 / -5 |
+| `M` | mute / unmute |
+| `1 2 3 4` | card tabs: Up next, Recent, Lists, Lyrics |
+| `1 2 3 4 5` | player tabs: Search, Queue, Playlists, Recent, Lyrics |
+| `L` | Lyrics tab |
+| `E` | equaliser |
+| `V` | video window |
+| `F` | open the full player (card only) |
+
+From anywhere, add to `~/.config/hypr/bindings.lua`:
+
+    o.bind("SUPER + ALT + A", "Music: play / pause", "playerctl -p mpv.ytwidget play-pause")
+    o.bind("SUPER + ALT + Z", "Music: previous",     "playerctl -p mpv.ytwidget previous")
+    o.bind("SUPER + ALT + X", "Music: next",         "playerctl -p mpv.ytwidget next")
