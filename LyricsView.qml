@@ -171,27 +171,8 @@ Item {
       }
 
       width: ListView.view.width
-      height: Math.max(isBreak ? Style.space(root.compact ? 16 : 22) : 0, lineText.implicitHeight) + Style.space(hot ? 8 : 4)
-      Behavior on height { NumberAnimation { duration: 140 } }
-
-      // Pointing at a line lifts it and says when it is sung.
-      Rectangle {
-        anchors.fill: parent
-        radius: Style.space(9)
-        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.07)
-        opacity: lineItem.hot && !lineItem.current ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 120 } }
-      }
-      Text {
-        visible: lineItem.hot && !lineItem.current
-        anchors.left: parent.left
-        anchors.leftMargin: Style.space(6)
-        anchors.verticalCenter: parent.verticalCenter
-        text: root.formatTime(Number(lineItem.modelData.ms))
-        color: root.dim
-        font.family: Style.font.family
-        font.pixelSize: Style.font.caption - 1
-      }
+      // Pointing at a line only brightens it: nothing moves or resizes.
+      height: Math.max(isBreak ? Style.space(root.compact ? 16 : 22) : 0, lineText.implicitHeight) + Style.space(4)
 
       // Instrumental break: three dots that light up as the next line nears.
       Row {
@@ -219,8 +200,7 @@ Item {
         id: lineText
         visible: !lineItem.isBreak
         anchors.verticalCenter: parent.verticalCenter
-        x: lineItem.hot && !lineItem.current ? Style.space(root.compact ? 36 : 44) : 0
-        width: parent.width - x
+        width: parent.width
         horizontalAlignment: root.compact ? Text.AlignHCenter : Text.AlignLeft
         wrapMode: Text.WordWrap
         maximumLineCount: root.compact ? 3 : 4
@@ -235,7 +215,6 @@ Item {
           : (lineItem.current ? root.currentSize : root.otherSize)
         Behavior on font.pixelSize { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         Behavior on opacity { NumberAnimation { duration: 250 } }
-        Behavior on x { NumberAnimation { duration: 120 } }
       }
 
       MouseArea {
