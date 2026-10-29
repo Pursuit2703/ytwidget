@@ -35,6 +35,10 @@ QtObject {
     var pos = Number(service.positionMs || 0)
     if (playing && service.positionStampMs > 0)
       pos += Math.max(0, Math.min(2000, Date.now() - service.positionStampMs))
+    // Never step back a hair: a late position report would otherwise make
+    // the highlight flick back to the previous line at a boundary. A real
+    // seek backwards is bigger than this and goes through.
+    if (playing && pos < nowMs && nowMs - pos < 1200) pos = nowMs
     nowMs = pos
     var t = pos - offsetMs + leadMs
     index = synced ? lineAt(t) : -1

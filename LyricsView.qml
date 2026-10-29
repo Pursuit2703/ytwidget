@@ -44,6 +44,7 @@ Item {
     return Style.font.body + 11
   }
   readonly property real otherSize: compact ? Style.font.caption + 1 : currentSize * 0.68
+  readonly property real lineSize: compact ? Style.font.body + 1 : currentSize * 0.82
 
   LyricsClock {
     id: clock
@@ -63,8 +64,30 @@ Item {
   function backToNow() {
     backTimer.stop()
     root.userScrolling = false
-    if (clock.index >= 0) list.positionViewAtIndex(clock.index, ListView.Center)
+    scrollToCurrent(true)
   }
+
+  // Following the song is a plain animated scroll to the current line.
+  // (The ListView's own highlight tracking fought with lines changing size
+  // and jumped.)
+  function scrollToCurrent(animate) {
+    if (!root.synced || root.userScrolling || clock.index < 0 || !list.visible) return
+    var item = list.itemAtIndex(clock.index)
+    if (!item) { list.positionViewAtIndex(clock.index, ListView.Center); return }
+    var target = item.y + item.height / 2 - list.height / 2
+    target = Math.max(list.originY, Math.min(list.originY + list.contentHeight - list.height, target))
+    if (!animate) { followAnim.stop(); list.contentY = target; return }
+    followAnim.stop()
+    followAnim.from = list.contentY
+    followAnim.to = target
+    followAnim.start()
+  }
+  Connections {
+    target: clock
+    function onIndexChanged() { root.scrollToCurrent(true) }
+  }
+  onLinesChanged: Qt.callLater(function() { root.scrollToCurrent(false) })
+  onVisibleChanged: if (visible) Qt.callLater(function() { root.scrollToCurrent(false) })
 
   function escapeHtml(text) {
     return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -91,15 +114,17 @@ Item {
     spacing: root.compact ? Style.space(4) : Style.space(10)
     interactive: true
     boundsBehavior: Flickable.StopAtBounds
-    currentIndex: root.synced ? Math.max(0, clock.index) : -1
-    highlightFollowsCurrentItem: true
-    highlightRangeMode: root.synced && !root.userScrolling ? ListView.StrictlyEnforceRange : ListView.NoHighlightRange
-    // A band around the middle sized from the font, not from the current
-    // item (that fed back into itself as the item grew).
-    preferredHighlightBegin: height / 2 - root.currentSize * 0.8
-    preferredHighlightEnd: height / 2 + root.currentSize * 0.8
-    highlightMoveDuration: 420
-    highlightMoveVelocity: -1
+    currentIndex: -1
+    // Every line built up front, so the current one always has a position
+    // to scroll to.
+    cacheBuffer: 100000
+    NumberAnimation {
+      id: followAnim
+      target: list
+      property: "contentY"
+      duration: 520
+      easing.type: Easing.InOutCubic
+    }
     header: Item { height: root.synced ? list.height / 2 : 0; width: 1 }
     footer: Item { height: root.synced ? list.height / 2 : Style.space(12); width: 1 }
     // Always there on the right, so the lyrics can be dragged through.
@@ -108,7 +133,7 @@ Item {
     ScrollBar.vertical: ScrollBar {
       id: lyricsBar
       policy: list.contentHeight > list.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
-      onPressedChanged: if (pressed) { root.userScrolling = true; backTimer.stop() } else backTimer.restart()
+      onPressedChanged: if (pressed) { followAnim.stop(); root.userScrolling = true; backTimer.stop() } else backTimer.restart()
       onPositionChanged: if (pressed) root.userScrolling = true
       // Drawn here: the default style's bar was all but invisible on the
       // dark card.
@@ -127,9 +152,10 @@ Item {
       }
     }
 
-    onMovementStarted: { root.userScrolling = true; backTimer.restart() }
+    onMovementStarted: { followAnim.stop(); root.userScrolling = true; backTimer.restart() }
     WheelHandler {
       onWheel: function(event) {
+        followAnim.stop()
         root.userScrolling = true
         backTimer.restart()
         list.contentY = Math.max(list.originY, Math.min(list.originY + list.contentHeight - list.height,
@@ -199,10 +225,11 @@ Item {
         // fill (lyrics are timed per line, not per word).
         color: lineItem.current ? root.accent : (lineItem.hot ? Color.foreground : root.foreground)
         opacity: lineItem.hot ? 1 : lineItem.restOpacity
+        // One size and weight for every line: the current one changes colour
+        // only, so nothing re-wraps or resizes as the song moves on.
         font.family: Style.font.family
-        font.bold: lineItem.current
-        font.pixelSize: !root.synced ? root.otherSize + (root.compact ? 0 : 2)
-          : (lineItem.current ? root.currentSize : root.otherSize)
+        font.pixelSize: root.lineSize
+        Behavior on color { ColorAnimation { duration: 320 } }
         Behavior on opacity { NumberAnimation { duration: 250 } }
       }
 
