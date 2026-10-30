@@ -50,7 +50,10 @@ BarWidget {
   //   title  the note and the scrolling title, no transport controls
   //   full   everything above (the default)
   // Anything else falls back to full, so a typo never hides the widget.
+  // A vertical bar's slot is one icon wide, so the title and full rows would
+  // spill out of it: it is always icon there, whatever is stored.
   readonly property string sizeMode: {
+    if (root.vertical) return "icon"
     if (root.uiSize !== "") return root.uiSize
     const s = String(root.setting("size", "full")).toLowerCase()
     return (s === "icon" || s === "title") ? s : "full"
@@ -408,9 +411,17 @@ BarWidget {
   property string miniTab: "next"
   property var miniPreview: null          // { title, items } for a pasted playlist link
   property bool miniPreviewBusy: false
-  // One height the card is built around, so it never changes size.
+  // On a top or bottom bar the card is one fixed height (miniCardHeight), so it
+  // never changes size. On a vertical bar it is tall enough for its content
+  // instead: the fixed top part plus the pane, which is as tall as the current
+  // tab's rows (miniPaneMinHeight .. miniPaneHeight) and grows for search
+  // results and other tabs with many rows. Lyrics, the equaliser/video options
+  // and a pasted playlist always take the full pane height.
   readonly property real miniPaneHeight: Style.space(290)
+  readonly property real miniPaneMinHeight: Style.space(96)
   readonly property real miniCardHeight: Style.space(744)
+  // Never taller than the screen leaves room for (see the card's own margins).
+  readonly property real miniCardMaxHeight: root.barScreen ? Math.max(120, root.barScreen.height - 2 * Style.gapsOut - (!root.vertical ? (root.bar ? root.bar.barSize : 0) : 0)) : miniCardHeight
 
   function isPlaylistLink(text) {
     return Api.isYouTubeLink(text) && /[?&]list=/.test(String(text))
@@ -943,7 +954,7 @@ BarWidget {
   Timer {
     interval: root.ambientMoving ? 40 : 250
     repeat: true
-    running: root.ambientEnabled
+    running: root.ambientEnabled && !root.vertical
     triggeredOnStart: true
     onTriggered: root.recomputeAmbientGaps()
   }
@@ -1229,16 +1240,35 @@ BarWidget {
       // behind it. Every other panel opens clear of the bar, and this one
       // looked wrong next to them for exactly that reason.
       //
-      // The card lives in the top-right, so only a top bar or a right-hand
-      // bar is ever in its way; a bottom or left bar needs no clearance.
+      // The card lives in the top-right on a top or bottom bar, so only a
+      // top bar is in its way. On a left or right bar it sits just clear of
+      // the bar instead, level with the note button and kept on screen,
+      // the way the stock popups place themselves.
       readonly property string barPos: root.bar ? root.bar.position : "top"
       readonly property int barThickness: root.bar ? root.bar.barSize : 0
-      anchors.top: parent.top
-      anchors.right: parent.right
-      anchors.topMargin: (barPos === "top" ? barThickness : 0) + Style.gapsOut
-      anchors.rightMargin: (barPos === "right" ? barThickness : 0) + Style.gapsOut
+      readonly property bool onSide: barPos === "left" || barPos === "right"
+      // The button's centre in the bar window; popupOpen is read so it is
+      // re-measured each time the card opens (mapToItem is not reactive).
+      readonly property real noteCentreY: {
+        root.popupOpen
+        if (!root.barWindow) return 0
+        const at = root.mapToItem(root.barWindow.contentItem, 0, 0)
+        return at.y + root.height / 2
+      }
+      x: onSide
+        ? (barPos === "left" ? barThickness + Style.gapsOut
+                             : parent.width - barThickness - Style.gapsOut - width)
+        : parent.width - Style.gapsOut - width
+      y: onSide
+        ? Math.round(Math.max(Style.gapsOut, Math.min(noteCentreY - height / 2,
+                                                      parent.height - height - Style.gapsOut)))
+        : (barPos === "top" ? barThickness : 0) + Style.gapsOut
       width: Style.space(320)
-      height: root.miniCardHeight
+      height: root.vertical
+        ? Math.min(column.implicitHeight + card.contentTopInset + card.contentBottomInset,
+                   onSide ? parent.height - 2 * Style.gapsOut : root.miniCardMaxHeight)
+        : Math.min(root.miniCardHeight, onSide ? parent.height - 2 * Style.gapsOut : root.miniCardMaxHeight)
+      // No Behavior here: the pane's own height animates and the card follows it.
       radius: Style.cornerRadius
       color: Color.popups.background
       borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
@@ -1542,6 +1572,8 @@ BarWidget {
           Keys.onEscapePressed: function(event) { cardScope.forceActiveFocus(); event.accepted = true }
         }
         FlatButton {
+          // The wide chip does not fit a vertical bar, so there is nothing to toggle.
+          visible: !root.vertical
           buttonSize: Style.space(36)
           iconText: root.sizeMode === "full" ? "\u{f084c}" : "\u{f084e}"
           selected: root.sizeMode === "full"
@@ -1575,7 +1607,20 @@ BarWidget {
       Item {
         id: pane
         width: parent.width
-        height: root.miniPaneHeight + (root.miniEqOpen ? miniTabs.implicitHeight + column.spacing : 0)
+        readonly property real maxHeight: root.miniPaneHeight + (root.miniEqOpen ? miniTabs.implicitHeight + column.spacing : 0)
+        // Vertical bar: the rows' real height, clamped. Everything but search
+        // results and the Up next / Recent / Lists rows wants the full pane.
+        readonly property real wantHeight: {
+          if (!root.vertical || showOptions || showPreview) return maxHeight
+          var rows = showResults ? miniResultList.contentHeight
+                   : root.miniTab === "lyrics" ? maxHeight : tabList.contentHeight
+          return Math.max(root.miniPaneMinHeight, Math.min(maxHeight, rows))
+        }
+        height: wantHeight
+        Behavior on height {
+          enabled: root.vertical
+          NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+        }
         clip: true
 
         readonly property bool showOptions: root.miniEqOpen || !!(root.ytService && root.ytService.videoActive)
