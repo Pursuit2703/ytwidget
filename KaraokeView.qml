@@ -65,13 +65,28 @@ Item {
     return -1
   }
 
-  readonly property int cur: clock.index
+  // Which line is being sung, from the same per-frame clock that drives
+  // the fill. (Taking it from the 50 ms lyrics clock instead let the line
+  // switch while the smoother fill clock was still a little behind, so the
+  // colour never finished before the next line took over.)
+  readonly property int cur: {
+    var ls = root.lines
+    if (!root.synced || ls.length === 0) return -1
+    var t = root.localT >= 0 ? root.localT : clock.nowMs - clock.offsetMs + clock.leadMs
+    var lo = 0, hi = ls.length - 1, found = -1
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1
+      if (Number(ls[mid].ms) <= t) { found = mid; lo = mid + 1 }
+      else hi = mid - 1
+    }
+    return found
+  }
   readonly property bool inBreak: cur < 0 || wordsAt(cur) === ""
   readonly property int upcoming: nextSung(cur)
   // Milliseconds until the next sung line starts.
   readonly property real untilNext: {
     if (upcoming < 0) return -1
-    var t = clock.nowMs - clock.offsetMs + clock.leadMs
+    var t = root.localT >= 0 ? root.localT : clock.nowMs - clock.offsetMs + clock.leadMs
     return Math.max(0, Number(root.lines[upcoming].ms) - t)
   }
   // Count in when nothing is being sung for a while.
