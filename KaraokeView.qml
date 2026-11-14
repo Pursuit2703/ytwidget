@@ -622,11 +622,30 @@ Item {
           // The current line is drawn by the row pieces below (sung part in
           // colour, the rest in white), never on top of itself: drawing the
           // colour over the white text left a white halo around the letters.
+          // The line just sung turns from the cover colour back to white by
+          // itself (one copy of the text, so no halo while it changes).
+          property bool leaving: false
+          property color leaveColor: root.fg
           color: lineItem.isCurrent && rows.length > 0 ? "transparent"
-            : (lineItem.isCurrent ? Qt.rgba(1, 1, 1, 0.78) : root.fg)
-          Behavior on color {
-            enabled: !lineItem.isCurrent
-            ColorAnimation { duration: 420; easing.type: Easing.OutCubic }
+            : (leaving ? leaveColor : (lineItem.isCurrent ? Qt.rgba(1, 1, 1, 0.78) : root.fg))
+          ColorAnimation {
+            id: leaveAnim
+            target: lineText
+            property: "leaveColor"
+            duration: 700
+            easing.type: Easing.InOutQuad
+            onFinished: lineText.leaving = false
+          }
+          Connections {
+            target: lineItem
+            function onIsCurrentChanged() {
+              if (lineItem.isCurrent) { leaveAnim.stop(); lineText.leaving = false; return }
+              leaveAnim.from = Qt.lighter(root.accent, 1.12)
+              leaveAnim.to = root.fg
+              lineText.leaveColor = leaveAnim.from
+              lineText.leaving = true
+              leaveAnim.restart()
+            }
           }
           font.family: Style.font.family
           font.bold: true
@@ -655,7 +674,7 @@ Item {
           Repeater {
             // Kept on the line just sung too, full, fading out as it moves up,
             // so the colour hands over instead of vanishing.
-            model: lineItem.dist === 0 || lineItem.dist === -1 ? lineText.rows : []
+            model: lineItem.isCurrent ? lineText.rows : []
             delegate: Item {
               id: rowPiece
               required property var modelData
