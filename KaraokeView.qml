@@ -322,7 +322,8 @@ Item {
         on: true
         tint: root.accent
         glyph: root.synced ? "\u{f04e6}" : ""
-        label: sourceText.sourceText !== "" ? sourceText.sourceText + "  \u{f0140}" : "Lyrics  \u{f0140}"
+        // The kind only ("Synced"); the language has its own chip beside it.
+        label: (sourceText.sourceText !== "" ? sourceText.sourceText.split(" · ")[0] : "Lyrics") + "  \u{f0140}"
         onPicked: {
           karaokeMenu.y = sourceChip.height + Style.space(6)
           karaokeMenu.open()
@@ -388,17 +389,14 @@ Item {
         label: root.narrow ? "" : "Wrong song? Try another"
         onPicked: if (root.service) root.service.lyricsTryOther()
       }
+      // Only speaks up when the timing check thinks these lyrics are wrong.
       Text {
         visible: !root.narrow && text !== ""
         anchors.verticalCenter: parent.verticalCenter
         rightPadding: Style.space(12)
-        text: {
-          var l = root.lyrics
-          if (!l || !l.title) return ""
-          var note = Api.syncNote(l)
-          return "Lyrics of " + l.artist + " – " + l.title + (note !== "" ? " · " + note : "")
-        }
-        color: Qt.rgba(1, 1, 1, 0.5)
+        text: root.lyrics && root.lyrics.sync && root.lyrics.sync.status === "doubtful"
+          ? "Timing doesn't match this song" : ""
+        color: Color.urgent
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
       }
@@ -571,7 +569,14 @@ Item {
       spacing: Style.space(18) * Math.max(0.6, root.sizeScale)
       model: root.sungLines
       cacheBuffer: 4000
+      boundsBehavior: Flickable.StopAtBounds
       readonly property int currentPos: root.sungPos(root.focusLine)
+      // Half a view of room above the first line and below the last, so any
+      // line can sit in the middle. Without it the first lines could not be
+      // centred: the scroll pushed up, the list pushed back, and the lines
+      // bounced while the song began.
+      header: Item { width: 1; height: lineView.height / 2 }
+      footer: Item { width: 1; height: lineView.height / 2 }
 
       delegate: Item {
         id: lineItem
