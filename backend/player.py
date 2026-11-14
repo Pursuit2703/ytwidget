@@ -866,7 +866,10 @@ class QueuePlayer:
             # because a paused stream's signed URL went stale, we were still
             # on this same track and shouldn't lose the position it was
             # paused at.
-            if self._loaded_video_id == video_id and self.position_ms > 0:
+            # Not when the song had played to its end: then play means
+            # start it again, not resume at the last second.
+            near_end = self.duration_ms > 0 and self.position_ms >= self.duration_ms - 2000
+            if self._loaded_video_id == video_id and self.position_ms > 0 and not near_end:
                 self.set_resume_position(self.position_ms)
             self._play_current(start=True)
             self._apply_resume_position()
@@ -1197,6 +1200,9 @@ class QueuePlayer:
             resume_at = 0
             if self._resume_position_ms > 0 and self._resume_for == video_id:
                 resume_at = int(self._resume_position_ms)
+                length = int(item.get("durationMs") or 0)
+                if length > 0 and resume_at >= length - 2000:
+                    resume_at = 0
             # Used, or for a track that isn't this one: either way it's done.
             self._resume_position_ms = 0
             self.mpv.command(loadfile_command(url, item, self.resolver.proxy_for(video_id, url), resume_at))
