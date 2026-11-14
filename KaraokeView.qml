@@ -619,8 +619,15 @@ Item {
           horizontalAlignment: Text.AlignHCenter
           text: lineItem.modelData.text
           textFormat: Text.PlainText
-          color: lineItem.isCurrent ? Qt.rgba(1, 1, 1, 0.78) : root.fg
-          Behavior on color { ColorAnimation { duration: 420; easing.type: Easing.OutCubic } }
+          // The current line is drawn by the row pieces below (sung part in
+          // colour, the rest in white), never on top of itself: drawing the
+          // colour over the white text left a white halo around the letters.
+          color: lineItem.isCurrent && rows.length > 0 ? "transparent"
+            : (lineItem.isCurrent ? Qt.rgba(1, 1, 1, 0.78) : root.fg)
+          Behavior on color {
+            enabled: !lineItem.isCurrent
+            ColorAnimation { duration: 420; easing.type: Easing.OutCubic }
+          }
           font.family: Style.font.family
           font.bold: true
           font.pixelSize: Style.space(46) * root.sizeScale
@@ -650,7 +657,7 @@ Item {
             // so the colour hands over instead of vanishing.
             model: lineItem.dist === 0 || lineItem.dist === -1 ? lineText.rows : []
             delegate: Item {
-              id: rowFill
+              id: rowPiece
               required property var modelData
               required property int index
               readonly property real before: {
@@ -658,25 +665,57 @@ Item {
                 for (var i = 0; i < index; i++) t += lineText.rows[i].w
                 return t
               }
-              x: (lineText.width - modelData.w) / 2
+              readonly property real sung: lineItem.isCurrent
+                ? Math.max(0, Math.min(modelData.w, lineText.fillPx - before)) : modelData.w
+              readonly property real rowX: (lineText.width - modelData.w) / 2
+              x: 0
               y: modelData.y
-              width: lineItem.isCurrent ? Math.max(0, Math.min(modelData.w, lineText.fillPx - before)) : modelData.w
-              opacity: lineItem.isCurrent ? 1 : 0
-              Behavior on opacity { NumberAnimation { duration: 650; easing.type: Easing.OutCubic } }
+              width: lineText.width
               height: modelData.h
-              clip: true
-              Text {
-                x: -rowFill.x
-                y: -rowFill.y
-                width: lineText.width
-                horizontalAlignment: Text.AlignHCenter
-                text: lineText.text
-                textFormat: Text.PlainText
-                color: Qt.lighter(root.accent, 1.12)
-                renderType: Text.QtRendering
-                font: lineText.font
-                lineHeight: lineText.lineHeight
-                wrapMode: Text.WordWrap
+
+              // Sung part, in the cover colour.
+              Item {
+                id: sungPart
+                x: rowPiece.rowX
+                width: rowPiece.sung
+                height: parent.height
+                clip: true
+                opacity: lineItem.isCurrent ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: 650; easing.type: Easing.OutCubic } }
+                Text {
+                  x: -rowPiece.rowX
+                  y: -rowPiece.modelData.y
+                  width: lineText.width
+                  horizontalAlignment: Text.AlignHCenter
+                  text: lineText.text
+                  textFormat: Text.PlainText
+                  color: Qt.lighter(root.accent, 1.12)
+                  renderType: Text.QtRendering
+                  font: lineText.font
+                  lineHeight: lineText.lineHeight
+                  wrapMode: Text.WordWrap
+                }
+              }
+              // Still to sing, in white (current line only).
+              Item {
+                visible: lineItem.isCurrent
+                x: rowPiece.rowX + rowPiece.sung
+                width: Math.max(0, rowPiece.modelData.w - rowPiece.sung)
+                height: parent.height
+                clip: true
+                Text {
+                  x: -(rowPiece.rowX + rowPiece.sung)
+                  y: -rowPiece.modelData.y
+                  width: lineText.width
+                  horizontalAlignment: Text.AlignHCenter
+                  text: lineText.text
+                  textFormat: Text.PlainText
+                  color: Qt.rgba(1, 1, 1, 0.78)
+                  renderType: Text.QtRendering
+                  font: lineText.font
+                  lineHeight: lineText.lineHeight
+                  wrapMode: Text.WordWrap
+                }
               }
             }
           }
