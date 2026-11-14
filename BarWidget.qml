@@ -1970,21 +1970,23 @@ BarWidget {
         width: parent.width
         visible: !root.miniEqOpen
         readonly property bool searching: root.miniSearchText !== ""
-        implicitHeight: searching ? Style.space(40) : Style.space(36)
+        // A slim, quiet search box above the tabs: always there to click,
+        // but it only takes the cover colour while you are typing in it.
+        implicitHeight: Style.space(36) + Style.space(8) + Style.space(36)
         height: implicitHeight
 
       Rectangle {
-        anchors.fill: parent
-        // Under the tabs while there is no query, so the invisible field
-        // never sits on top of them and takes their clicks.
-        z: miniTabs.searching ? 1 : -1
-        opacity: miniTabs.searching ? 1 : 0
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: Style.space(36)
         radius: height / 2
-        color: Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, miniSearchField.activeFocus ? 0.10 : 0.06)
+        color: Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b,
+                       miniSearchField.activeFocus && miniTabs.searching ? 0.09 : 0.05)
         border.width: 1
-        border.color: miniSearchField.activeFocus
-          ? Qt.rgba(miniTint.accent.r, miniTint.accent.g, miniTint.accent.b, 0.6)
-          : Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.12)
+        border.color: miniSearchField.activeFocus && miniTabs.searching
+          ? Qt.rgba(miniTint.accent.r, miniTint.accent.g, miniTint.accent.b, 0.55)
+          : Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.06)
 
         Text {
           id: miniSearchGlyph
@@ -2038,8 +2040,10 @@ BarWidget {
       // Tabs: text with an underline in the cover's colour.
       Item {
         id: tabsRow
-        anchors.fill: parent
-        visible: !miniTabs.searching
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: Style.space(36)
         readonly property var tabs: [
           { key: "next", label: "Up next" },
           { key: "recent", label: "Recent" },
