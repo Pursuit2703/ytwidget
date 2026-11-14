@@ -601,9 +601,10 @@ Item {
 
         Text {
           id: lineText
-          // Wrapped at the size it is heading to, so a long line does not
-          // re-wrap on every frame of the animation.
-          width: lineItem.column / lineItem.targetSc
+          // Every line is laid out once, at full size, and only ever scaled:
+          // it wraps the same way whether it is current or not, so nothing
+          // re-flows when the lines move on (that re-flow was the "jump").
+          width: lineItem.column
           anchors.horizontalCenter: parent.horizontalCenter
           scale: lineItem.sc
           // Distance-field text scales smoothly; hinted glyphs would snap
@@ -614,6 +615,7 @@ Item {
           text: lineItem.modelData.text
           textFormat: Text.PlainText
           color: lineItem.isCurrent ? Qt.rgba(1, 1, 1, 0.78) : root.fg
+          Behavior on color { ColorAnimation { duration: 420; easing.type: Easing.OutCubic } }
           font.family: Style.font.family
           font.bold: true
           font.pixelSize: Style.space(46) * root.sizeScale
@@ -639,7 +641,9 @@ Item {
 
           // The part already sung, in the cover colour: one clip per row.
           Repeater {
-            model: lineItem.isCurrent ? lineText.rows : []
+            // Kept on the line just sung too, full, fading out as it moves up,
+            // so the colour hands over instead of vanishing.
+            model: lineItem.dist === 0 || lineItem.dist === -1 ? lineText.rows : []
             delegate: Item {
               id: rowFill
               required property var modelData
@@ -651,7 +655,9 @@ Item {
               }
               x: (lineText.width - modelData.w) / 2
               y: modelData.y
-              width: Math.max(0, Math.min(modelData.w, lineText.fillPx - before))
+              width: lineItem.isCurrent ? Math.max(0, Math.min(modelData.w, lineText.fillPx - before)) : modelData.w
+              opacity: lineItem.isCurrent ? 1 : 0
+              Behavior on opacity { NumberAnimation { duration: 650; easing.type: Easing.OutCubic } }
               height: modelData.h
               clip: true
               Text {
