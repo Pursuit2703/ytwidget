@@ -34,6 +34,7 @@ Item {
   readonly property int queueIndex: conn.queueIndex
   readonly property var playHistory: conn.playHistory
   readonly property var playlists: conn.playlists
+  readonly property var queueSource: conn.queueSource
   readonly property var eq: conn.eq
   readonly property var eqBands: conn.eqBands
   readonly property string eqPreset: conn.eqPreset
@@ -60,7 +61,7 @@ Item {
   function ensureRunning() { conn.ensureRunning() }
   function search(query, limit, callback) { conn.search(query, limit, callback) }
   function playNow(item) { conn.playNow(item) }
-  function playQueueFrom(items, index) { conn.playQueueFrom(items, index) }
+  function playQueueFrom(items, index, source) { conn.playQueueFrom(items, index, source) }
   function openLink(url, callback) { conn.openLink(url, callback) }
   function addToQueue(item) { conn.addToQueue(item) }
   function addAllToQueue(items, callback) { conn.addAllToQueue(items, callback) }

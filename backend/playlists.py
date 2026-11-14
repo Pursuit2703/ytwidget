@@ -75,6 +75,7 @@ def get_playlist(playlist_id: str, path: Path | None = None) -> dict[str, Any]:
         "id": playlist_id,
         "name": entry.get("name", playlist_id),
         "items": [row for row in entry.get("items", []) if isinstance(row, dict)],
+        "createdAt": entry.get("createdAt", 0),
     }
 
 

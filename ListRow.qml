@@ -14,6 +14,7 @@ Rectangle {
   property string title: ""
   property string detail: ""
   property color foreground: Color.foreground
+  property color accent: Color.accent
 
   signal opened()
   signal played()
@@ -38,7 +39,7 @@ Rectangle {
       radius: Style.space(10)
       clip: true
       color: root.glyph !== ""
-        ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.16)
+        ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.16)
         : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06)
       Text {
         anchors.fill: parent
@@ -46,7 +47,7 @@ Rectangle {
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
         text: root.glyph
-        color: Color.accent
+        color: root.accent
         font.family: Style.font.family
         font.pixelSize: Style.font.iconLarge
       }
@@ -94,7 +95,8 @@ Rectangle {
     FlatButton {
       visible: hover.hovered
       iconText: "\u{f040a}"
-      foreground: Color.accent
+      foreground: root.accent
+      accent: root.accent
       tooltipText: "Play"
       onClicked: root.played()
     }

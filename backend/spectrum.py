@@ -278,6 +278,8 @@ def find_own_stream() -> tuple[str, str] | None:
 class SpectrumTap:
     def __init__(self, on_levels: Callable[[list[float]], None] | None = None):
         self.on_levels = on_levels or (lambda _bands: None)
+        # Unsmoothed band sums for every frame, for the lyrics timing check.
+        self.on_raw: Callable[[list[float]], None] = lambda _bands: None
         self.levels = [0.0] * NUM_BANDS
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -370,6 +372,10 @@ class SpectrumTap:
                     # it exactly WINDOW long so the FFT stays radix-2.
                     window = (window + samples)[-WINDOW:]
                     raw = analyze_raw(window)
+                    try:
+                        self.on_raw(raw)
+                    except Exception:
+                        pass
                     with self._lock:
                         self.levels = self._smoother.process(raw, silent=max(raw) <= 0.0)
                     self.on_levels(self.snapshot())

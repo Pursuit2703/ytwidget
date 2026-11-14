@@ -41,6 +41,8 @@ Item {
   property int queueIndex: -1
   property var playHistory: []
   property var playlists: []
+  // { kind, id, name } of what the queue was started from, or null.
+  property var queueSource: null
   property var eq: ({ bands: [0,0,0,0,0,0,0,0,0,0], preset: "Flat", labels: [], presets: [] })
   // Flat aliases matching omamusic's EqBar.qml (service.eqBands/eqPreset/eqLabels),
   // copied verbatim from omamusic — keep this shape so it works unmodified.
@@ -101,6 +103,11 @@ Item {
     queueIndex = state.queue_index !== undefined ? Number(state.queue_index) : -1
     if (state.play_history !== undefined) playHistory = state.play_history || []
     if (state.playlists !== undefined) playlists = state.playlists || []
+    if (state.queue_source !== undefined) {
+      var qs = state.queue_source || null
+      var old = queueSource
+      if ((qs ? qs.kind + qs.id + qs.name : "") !== (old ? old.kind + old.id + old.name : "")) queueSource = qs
+    }
     if (state.eq) eq = state.eq
     if (state.crossfade_ms !== undefined) crossfadeMs = Number(state.crossfade_ms)
     videoActive = !!state.video_active
@@ -126,7 +133,9 @@ Item {
   // ---- Actions ----
   function search(query, limit, callback) { send("search", { query: query, limit: limit || 20 }, callback) }
   function playNow(item) { send("load", { item: item, play: true }) }
-  function playQueueFrom(items, index) { send("load", { items: items, index: index || 0, play: true }) }
+  function playQueueFrom(items, index, source) {
+    send("load", { items: items, index: index || 0, play: true, source: source || null })
+  }
   // A playlist link deliberately replaces the queue — see server.open_link.
   function openLink(url, callback) { send("open_link", { url: url, play: true }, callback) }
   function addToQueue(item) { send("add_to_queue", { item: item }) }

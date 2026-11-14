@@ -15,6 +15,9 @@ Item {
   property bool primary: false
   property bool enabled: true
   property color foreground: Color.foreground
+  // The album tint, when the surface has one; the theme accent otherwise.
+  property color accent: Color.accent
+  property color onAccent: Color.background
   property real iconSize: Style.font.icon
   property real buttonSize: Style.space(34)
 
@@ -36,11 +39,11 @@ Item {
     radius: root.primary ? height / 2 : Style.space(9)
     opacity: root.enabled ? 1 : 0.4
     color: root.primary
-      ? (mouseArea.pressed ? Qt.darker(Color.accent, 1.15) : Color.accent)
+      ? (mouseArea.pressed ? Qt.darker(root.accent, 1.15) : root.accent)
       : (mouseArea.pressed && root.enabled
-        ? Style.pressedFillFor(root.foreground, Color.accent)
+        ? Style.pressedFillFor(root.foreground, root.accent)
         : ((root.selected || root.hot) && root.enabled
-          ? Style.selectedFillFor(root.foreground, Color.accent)
+          ? Style.selectedFillFor(root.foreground, root.accent)
           : "transparent"))
     Behavior on color { ColorAnimation { duration: 120 } }
   }
@@ -54,8 +57,8 @@ Item {
     font.family: Style.font.family
     font.pixelSize: root.iconSize
     opacity: root.enabled ? 1 : 0.4
-    color: root.primary ? Color.background
-      : (root.selected ? Style.selectedStateColor(root.foreground, Color.accent) : root.foreground)
+    color: root.primary ? root.onAccent
+      : (root.selected ? root.accent : root.foreground)
   }
 
   MouseArea {

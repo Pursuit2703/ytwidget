@@ -159,8 +159,13 @@ def mpris_title(item: dict | None = None) -> str:
     return title
 
 
-def loadfile_command(url: str, item: dict | None = None, proxy: str | None = None) -> list:
+def loadfile_command(url: str, item: dict | None = None, proxy: str | None = None,
+                     start_ms: int = 0) -> list:
     options = {"force-media-title": mpris_title(item)}
+    if start_ms > 0:
+        # Part of the load itself: a seek sent right after loadfile lands
+        # before the file is open and mpv drops it.
+        options["start"] = f"{start_ms / 1000.0:.3f}"
     if proxy:
         # A URL resolved through the VPN is bound to that exit IP.
         options["http-proxy"] = proxy
@@ -586,6 +591,7 @@ class QueuePlayer:
         self._eq_guard_until = 0.0
         self._eq_last_chain = ""
         self.spectrum = SpectrumTap()
+        self._position_stamp = 0.0
         self._loaded_video_id = ""
         # mpv reports idle-active while a loadfile is still settling, so a
         # stall is only believed once a load has had time to take effect.
@@ -595,6 +601,9 @@ class QueuePlayer:
         # a matching _loaded_video_id means the file is still up.
         self._mpv_idle = True
         self._resume_position_ms = 0
+        # Which track the resume point belongs to, so another track loaded
+        # first never starts part-way through.
+        self._resume_for = ""
         self.crossfade_ms = DEFAULT_CROSSFADE_MS
         # A fade only ever moves mpv's output volume. self.volume stays the
         # user's setting throughout, and the observed `volume` property is
@@ -766,6 +775,13 @@ class QueuePlayer:
         self.apply_eq()
         self.on_change()
 
+    def position_estimate_ms(self) -> float:
+        """Song position now, between mpv's time-pos reports."""
+        pos = float(self.position_ms)
+        if self.playing and self._position_stamp > 0:
+            pos += min(500.0, (time.monotonic() - self._position_stamp) * 1000.0)
+        return pos
+
     def set_eq_preset(self, name: str) -> None:
         preset = EQ_PRESETS.get(str(name or "").strip())
         if not preset:
@@ -796,6 +812,7 @@ class QueuePlayer:
         self.position_ms = resume_at
         self._resume_position_ms = resume_at
         current = self.current or {}
+        self._resume_for = str(current.get("videoId") or "")
         try:
             self.duration_ms = max(0, int(current.get("durationMs") or 0))
         except (TypeError, ValueError):
@@ -871,6 +888,7 @@ class QueuePlayer:
         UI would otherwise show the pre-video timestamp until you hit play.
         """
         self._resume_position_ms = max(0, int(position_ms or 0))
+        self._resume_for = str((self.current or {}).get("videoId") or "")
         if not self.playing:
             self.position_ms = self._resume_position_ms
 
@@ -1176,10 +1194,15 @@ class QueuePlayer:
                 # Load at silence so the new track cannot burst in at full
                 # volume in the gap before the fade-in thread gets scheduled.
                 self._set_output_volume(0.0)
-            self.mpv.command(loadfile_command(url, item, self.resolver.proxy_for(video_id, url)))
+            resume_at = 0
+            if self._resume_position_ms > 0 and self._resume_for == video_id:
+                resume_at = int(self._resume_position_ms)
+            # Used, or for a track that isn't this one: either way it's done.
+            self._resume_position_ms = 0
+            self.mpv.command(loadfile_command(url, item, self.resolver.proxy_for(video_id, url), resume_at))
             self.mpv.command(["set_property", "pause", not start])
             self.playing = start
-            self.position_ms = 0
+            self.position_ms = resume_at
             self.duration_ms = int(item.get("durationMs") or 0)
             self._loaded_video_id = video_id
             self._load_guard_until = time.time() + 2.0
@@ -1263,6 +1286,7 @@ class QueuePlayer:
                         changed = True
                     elif prop == "time-pos" and isinstance(value, (int, float)):
                         self.position_ms = int(max(0, value) * 1000)
+                        self._position_stamp = time.monotonic()
                         self._maybe_tail_fade()
                     elif prop == "duration" and isinstance(value, (int, float)) and value > 0:
                         self.duration_ms = int(value * 1000)

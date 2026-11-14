@@ -27,6 +27,8 @@ if str(HERE) not in sys.path:
 import audio_output
 import health
 import lyrics as lyrics_mod
+import lyrics_sync
+import spectrum as spectrum_mod
 import vpn as vpn_mod
 import play_history
 import playlists
@@ -117,14 +119,31 @@ class Backend:
             settings_path=store.config_dir() / "lyrics.json",
         )
         self.lyrics.sub_lang = self.sub_lang
+        # Checks the lyric timing against the audio being played.
+        self.lyrics_sync = lyrics_sync.LyricsSync(
+            spectrum_mod.BAND_EDGES,
+            position=self._sync_position,
+            lyrics=self.lyrics.snapshot,
+            report=self.lyrics.set_sync,
+            apply=lambda ms: self.lyrics.set_offset(ms, by="auto"),
+        )
+        self.player.spectrum.on_raw = self.lyrics_sync.feed
         self._last_broadcast = 0.0
         self._last_queue_save = 0.0
         self._resume_playing = False
         self._queue_save_timer: threading.Timer | None = None
         self._queue_path = queue_session.queue_path()
+        # What the queue was started from ({"kind", "id", "name"}), so the UI
+        # can say "playing from <playlist>". Not saved across restarts.
+        self.queue_source: dict[str, Any] | None = None
         self._restore_queue_session()
         # A restored track that is not playing yet still gets its lyrics.
         self.lyrics.track_changed(self.player.current, self.player.duration_ms)
+
+    def _sync_position(self) -> tuple[str, float, bool]:
+        current = self.player.current or {}
+        return (str(current.get("videoId") or ""), self.player.position_estimate_ms(),
+                bool(self.player.playing) and not self.video.active)
 
     def state(self) -> dict[str, Any]:
         track = self.player.snapshot_track()
@@ -133,6 +152,7 @@ class Backend:
             "backend_version": BACKEND_VERSION,
             "protocol_version": PROTOCOL_VERSION,
             "playing": self.player.playing,
+            "queue_source": self.queue_source,
             "resolving": self.player.resolving,
             "shuffle": self.player.shuffle,
             "repeat": self.player.repeat,
@@ -538,8 +558,15 @@ class Backend:
             item = message.get("item")
             play_flag = bool(message.get("play", True))
             if isinstance(items, list):
+                source = message.get("source")
+                self.queue_source = ({
+                    "kind": str(source.get("kind") or ""),
+                    "id": str(source.get("id") or ""),
+                    "name": str(source.get("name") or ""),
+                } if isinstance(source, dict) and source.get("name") else None)
                 self.player.load(items, index=int(message.get("index") or 0), play=play_flag)
             elif isinstance(item, dict):
+                self.queue_source = None
                 self.player.load([item], index=0, play=play_flag)
             else:
                 raise ValueError("item or items is required")
@@ -586,9 +613,11 @@ class Backend:
             return self.player.eq_snapshot()
         if command == "lyrics_try_other":
             self.lyrics.try_other()
+            self.lyrics_sync.lyrics_changed()
             return {}
         if command == "lyrics_select":
             self.lyrics.select(str(message.get("choice") or "") or None)
+            self.lyrics_sync.lyrics_changed()
             return {}
         if command == "lyrics_language":
             self.lyrics.set_language(str(message.get("lang") or ""))

@@ -23,9 +23,19 @@ Rectangle {
   property string queueGlyph: "\u{f0415}"
   property string playlistGlyph: "\u{f0412}"
   property color fg: Color.foreground
+  property color accent: Color.accent
+  // Set when the row sits in a saved playlist: the menu then offers to
+  // take the track out of it.
+  property string playlistId: ""
+  // Optional extras for particular lists:
+  property string leading: ""       // a rank or track number in front
+  property string trailing: ""      // replaces the length on the right
+  property string subtitleExtra: "" // appended to the channel line
+  property bool wideArt: false      // 16:9 thumbnail with the length on it
+  property bool alwaysActions: false // queue button shown without hovering
   property color fgDim: Qt.darker(Color.foreground, 1.6)
   property color rowFill: Qt.rgba(fg.r, fg.g, fg.b, 0.05)
-  property color rowFillActive: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.16)
+  property color rowFillActive: Qt.rgba(accent.r, accent.g, accent.b, 0.16)
 
   readonly property bool removes: queueGlyph === "\u{f0156}"
   readonly property bool isCurrent: !!(service && service.track && item
@@ -34,6 +44,7 @@ Rectangle {
 
   signal playRequested()
   signal queueRequested()
+  signal removedFromPlaylist()
 
   function addCurrentItemToPlaylist(playlistId) {
     if (!root.service || !root.item) return
@@ -114,9 +125,19 @@ Rectangle {
     anchors.rightMargin: Style.space(8)
     spacing: Style.space(10)
 
+    Text {
+      visible: root.leading !== ""
+      Layout.preferredWidth: Style.space(26)
+      horizontalAlignment: Text.AlignRight
+      text: root.isCurrent ? "\u266B" : root.leading
+      color: root.isCurrent ? root.accent : root.fgDim
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption + 1
+    }
+
     Rectangle {
-      Layout.preferredWidth: root.compact ? Style.space(28) : Style.space(36)
-      Layout.preferredHeight: root.compact ? Style.space(28) : Style.space(36)
+      Layout.preferredWidth: root.wideArt ? Style.space(64) : (root.compact ? Style.space(28) : Style.space(36))
+      Layout.preferredHeight: root.wideArt ? Style.space(36) : (root.compact ? Style.space(28) : Style.space(36))
       radius: Style.space(6)
       color: root.rowFill
       clip: true
@@ -126,6 +147,24 @@ Rectangle {
         source: root.item ? (root.item.thumbnail || "") : ""
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
+      }
+      Rectangle {
+        visible: root.wideArt && lenOnArt.text !== ""
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: Style.space(2)
+        width: lenOnArt.implicitWidth + Style.space(6)
+        height: lenOnArt.implicitHeight
+        radius: Style.space(3)
+        color: Qt.rgba(0, 0, 0, 0.7)
+        Text {
+          id: lenOnArt
+          anchors.centerIn: parent
+          text: root.item ? (root.item.live ? "Live" : Api.formatTime(root.item.durationMs || 0)) : ""
+          color: "white"
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption - 2
+        }
       }
       // Now-playing bars: three bars that bob while the track plays and rest
       // when it is paused.
@@ -144,7 +183,7 @@ Rectangle {
               width: Style.space(3)
               anchors.bottom: parent.bottom
               radius: 1
-              color: Color.accent
+              color: root.accent
               property real level: [0.6, 1.0, 0.45][index]
               height: Style.space(root.compact ? 14 : 16) * level
               SequentialAnimation on level {
@@ -165,7 +204,7 @@ Rectangle {
       spacing: Style.space(2)
       Label {
         text: root.item ? (root.item.name || "Untitled") : ""
-        color: root.isCurrent ? Color.accent : root.fg
+        color: root.isCurrent ? root.accent : root.fg
         font.family: Style.font.family
         font.bold: root.isCurrent
         font.pixelSize: root.compact ? Style.font.caption : Style.font.body
@@ -174,7 +213,7 @@ Rectangle {
       }
       Label {
         visible: !root.compact && text !== ""
-        text: root.item ? (root.item.subtitle || "") : ""
+        text: (root.item ? (root.item.subtitle || "") : "") + (root.subtitleExtra !== "" ? " · " + root.subtitleExtra : "")
         color: root.fgDim
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
@@ -183,6 +222,15 @@ Rectangle {
       }
     }
 
+    FlatButton {
+      visible: root.alwaysActions && !root.showActions
+      iconText: root.queueGlyph
+      foreground: root.removes ? root.accent : root.fgDim
+      accent: root.accent
+      buttonSize: root.compact ? Style.space(28) : Style.space(32)
+      tooltipText: root.removes ? "Remove from queue" : "Add to queue"
+      onClicked: root.queueRequested()
+    }
     FlatButton {
       visible: root.showActions
       iconText: root.playGlyph
@@ -206,10 +254,11 @@ Rectangle {
       }
     }
     Label {
-      visible: !root.showActions
-      Layout.preferredWidth: Style.space(44)
+      visible: !root.showActions && !(root.wideArt && root.trailing === "")
+      Layout.preferredWidth: root.trailing !== "" ? implicitWidth : Style.space(44)
       horizontalAlignment: Text.AlignRight
-      text: root.item ? (root.item.live ? "Live" : Api.formatTime(root.item.durationMs || 0)) : ""
+      text: root.trailing !== "" ? root.trailing
+        : (root.item ? (root.item.live ? "Live" : Api.formatTime(root.item.durationMs || 0)) : "")
       color: root.fgDim
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
@@ -266,6 +315,18 @@ Rectangle {
         onPicked: {
           menu.close()
           Qt.openUrlExternally("https://www.youtube.com/watch?v=" + root.item.videoId)
+        }
+      }
+      MenuRow {
+        visible: !menu.pickingPlaylist && root.playlistId !== "" && !!root.service
+        glyph: "\u{f0156}"
+        label: "Remove from this playlist"
+        tint: Color.urgent
+        onPicked: {
+          menu.close()
+          if (!root.service || !root.item) return
+          root.service.removeFromPlaylist(root.playlistId, root.item.videoId)
+          root.removedFromPlaylist()
         }
       }
       MenuRow {

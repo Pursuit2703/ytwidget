@@ -69,3 +69,17 @@ function formatTime(ms) {
   if (h > 0) return h + ":" + pad(m) + ":" + pad(s)
   return m + ":" + pad(s)
 }
+
+// What the audio check (backend/lyrics_sync.py) says about the timing.
+function syncNote(l) {
+  var sy = l && l.sync ? l.sync : null
+  if (!sy || !sy.status) return ""
+  if (sy.status === "checking") return "checking timing…"
+  if (sy.status === "ok") return "timing checked"
+  if (sy.status === "adjusted") {
+    var ms = Number(sy.offsetMs || 0)
+    return "auto-synced " + (ms > 0 ? "+" : ms < 0 ? "\u2212" : "") + (Math.abs(ms) / 1000).toFixed(2).replace(/0$/, "") + " s"
+  }
+  if (sy.status === "doubtful") return "timing doesn't match the song — try another match"
+  return ""
+}

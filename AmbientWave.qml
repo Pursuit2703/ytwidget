@@ -15,6 +15,8 @@ Item {
 
   property var levels: []
   property color color: Color.foreground
+  // Same short glide whichever way the colour changes.
+  Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutCubic } }
   // Per-bar contrast against the wallpaper under it: tones[i] is 1 where the
   // wallpaper is light. Empty means no sample yet, so every bar uses `color`.
   property color darkColor: "#2d353b"

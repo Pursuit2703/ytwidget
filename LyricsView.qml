@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
+import qs.Ui
 
 // Lyrics for the playing track. The line being sung sits in the middle,
 // bigger and in the accent colour; the lines around it fade with distance.
@@ -52,12 +53,15 @@ Item {
 
   readonly property real currentSize: {
     if (compact) return Style.font.body + 3
-    if (size === "small") return Style.font.body + 6
-    if (size === "large") return Style.font.body + 16
-    return Style.font.body + 11
+    if (size === "small") return Style.font.body + 8
+    if (size === "large") return Style.font.body + 24
+    return Style.font.body + 15
   }
   readonly property real otherSize: compact ? Style.font.caption + 1 : currentSize * 0.68
-  readonly property real lineSize: compact ? Style.font.body + 1 : currentSize * 0.82
+  readonly property real lineSize: compact ? Style.font.body + 1 : currentSize
+  // How far in from the top and bottom edges the lines fade out. Done per
+  // line, so it works over any background (the cover wash included).
+  readonly property real edgeFade: Math.min(list.height * 0.22, Style.space(compact ? 34 : 110))
 
   LyricsClock {
     id: clock
@@ -66,6 +70,7 @@ Item {
   }
 
   signal openPlayerRequested()
+  signal karaokeRequested()
 
   property bool userScrolling: false
   // After reading ahead, glide back to the line being sung.
@@ -127,7 +132,7 @@ Item {
     visible: root.hasText
     clip: true
     model: root.hasText ? root.lines : []
-    spacing: root.compact ? Style.space(9) : Style.space(14)
+    spacing: root.compact ? Style.space(9) : Style.space(18)
     interactive: true
     boundsBehavior: Flickable.StopAtBounds
     currentIndex: -1
@@ -185,6 +190,13 @@ Item {
       required property int index
       readonly property string words: String(modelData.text || "").trim()
       readonly property bool isBreak: words === ""
+      // 0 at the very top/bottom edge of the view, 1 a little way in.
+      readonly property real edge: {
+        var top = lineItem.y - list.contentY
+        var bottom = list.height - (top + lineItem.height)
+        var d = Math.min(top + lineItem.height * 0.5, bottom + lineItem.height * 0.5)
+        return root.edgeFade > 0 ? Math.max(0, Math.min(1, d / root.edgeFade)) : 1
+      }
       readonly property int distance: root.synced && clock.index >= 0 ? Math.abs(index - clock.index) : 0
       readonly property bool current: root.synced && index === clock.index
       readonly property bool passed: root.synced && index < clock.index
@@ -193,7 +205,7 @@ Item {
 
       // Sung lines go quiet, the next ones stay readable.
       readonly property real restOpacity: {
-        if (!root.synced) return 0.85
+        if (!root.synced) return 0.92
         if (current) return 1
         if (passed) return Math.max(0.14, 0.34 - (distance - 1) * 0.08)
         return Math.max(0.22, 0.6 - (distance - 1) * 0.14)
@@ -202,11 +214,13 @@ Item {
       // Room on the right for the scrollbar.
       width: ListView.view.width - Style.space(12)
       // Pointing at a line only brightens it: nothing moves or resizes.
-      height: Math.max(isBreak ? Style.space(root.compact ? 16 : 22) : 0, lineText.implicitHeight) + Style.space(4)
+      height: Math.max(isBreak ? Style.space(root.compact ? 16 : (root.synced ? 26 : 14)) : 0, lineText.implicitHeight) + Style.space(4)
+      opacity: lineItem.edge
 
       // Instrumental break: three dots that light up as the next line nears.
+      // Untimed lyrics just get the gap between verses.
       Row {
-        visible: lineItem.isBreak
+        visible: lineItem.isBreak && root.synced
         anchors.centerIn: parent
         anchors.horizontalCenterOffset: root.compact ? 0 : -(parent.width / 2 - width / 2)
         spacing: Style.space(8)
@@ -247,6 +261,8 @@ Item {
         // only, so nothing re-wraps or resizes as the song moves on.
         font.family: Style.font.family
         font.pixelSize: root.lineSize
+        font.bold: !root.compact
+        lineHeight: root.compact ? 1 : 1.12
         Behavior on color { ColorAnimation { duration: 320 } }
         Behavior on opacity { NumberAnimation { duration: 250 } }
       }
@@ -353,30 +369,6 @@ Item {
     }
   }
 
-  // Soft fade at the top and bottom edges of the list.
-  Rectangle {
-    visible: list.visible
-    anchors.left: list.left
-    anchors.right: list.right
-    anchors.top: list.top
-    height: Math.min(list.height * 0.28, Style.space(root.compact ? 34 : 90))
-    gradient: Gradient {
-      GradientStop { position: 0; color: root.fadeTo }
-      GradientStop { position: 1; color: Qt.rgba(root.fadeTo.r, root.fadeTo.g, root.fadeTo.b, 0) }
-    }
-  }
-  Rectangle {
-    visible: list.visible
-    anchors.left: list.left
-    anchors.right: list.right
-    anchors.bottom: list.bottom
-    height: Math.min(list.height * 0.28, Style.space(root.compact ? 34 : 90))
-    gradient: Gradient {
-      GradientStop { position: 0; color: Qt.rgba(root.fadeTo.r, root.fadeTo.g, root.fadeTo.b, 0) }
-      GradientStop { position: 1; color: root.fadeTo }
-    }
-  }
-
   // ---- loading / none / offline / off
   Column {
     anchors.centerIn: parent
@@ -446,6 +438,39 @@ Item {
       color: root.dim
       font.family: Style.font.family
       font.pixelSize: Style.font.caption - 1
+    }
+    // Karaoke, always at hand next to the language chip (timed lyrics only).
+    Rectangle {
+      id: micChip
+      visible: root.hasText && root.synced
+      anchors.right: langChip.left
+      anchors.rightMargin: Style.space(6)
+      anchors.verticalCenter: parent.verticalCenter
+      width: height + Style.space(8)
+      height: Style.space(18)
+      radius: height / 2
+      color: micArea.containsMouse
+        ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.3)
+        : Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.16)
+      Text {
+        anchors.centerIn: parent
+        text: "\u{f05cb}"
+        color: root.accent
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
+      }
+      MouseArea {
+        id: micArea
+        anchors.fill: parent
+        anchors.margins: -Style.space(3)
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.karaokeRequested()
+      }
+      PanelToolTip {
+        visible: micArea.containsMouse
+        text: "Karaoke in the big player"
+      }
     }
     // Source and language, once there is something to show.
     Rectangle {

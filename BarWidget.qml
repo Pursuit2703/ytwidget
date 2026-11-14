@@ -81,7 +81,18 @@ BarWidget {
   // The setting still widens the title, but it widens the locked width with
   // it, so the chip stays the same size in every state either way.
   readonly property real maxLabelWidth: Math.max(trackSpan,
-    Style.space(Math.max(60, Number(root.setting("maxWidth", 0)) || 0)))
+    Style.space(Math.max(60, Number(root.setting("maxWidth", 0)) || 0)),
+    root.barLyricsWide ? Style.space(root.lyricsWidthSetting) : 0)
+  // Optional: a wider chip only while timed lyrics are playing. Paused, the
+  // chip is back to its usual width for the transport buttons. 0 = never.
+  readonly property real lyricsWidthSetting: Math.max(0, Number(root.setting("lyricsWidth", 0)) || 0)
+  // The audio check found the timing doesn't fit this song: show the usual
+  // title and controls instead of lyrics that would be wrong.
+  readonly property bool barLyricsDoubtful: !!(root.ytService && root.ytService.lyrics
+    && root.ytService.lyrics.sync && root.ytService.lyrics.sync.status === "doubtful")
+  readonly property bool barLyricsActive: root.lyricsInBar && root.hasTrack && root.lastError === ""
+    && barLyricsClock.synced && barLyricsClock.lines.length > 0 && !root.barLyricsDoubtful
+  readonly property bool barLyricsWide: root.lyricsWidthSetting > 0 && root.barLyricsActive && root.playing
   readonly property string playIcon: playing ? "\u{f03e4}" : "\u{f040a}"
   // Plain ASCII, not a nerd-font codepoint: guaranteed to render in any font,
   // no tofu risk. The art placeholder in the popup, where a tofu box would sit
@@ -98,7 +109,15 @@ BarWidget {
   // widget has any business making uninvited.
   // ---- lyrics
   readonly property bool lyricsEnabled: String(root.setting("lyrics", "true")) !== "false"
-  readonly property bool lyricsInBar: lyricsEnabled && String(root.setting("lyricsInBar", "true")) !== "false"
+  // The setting is the default; the mini card's toggle overrides it and is
+  // remembered (ui state file), like the bar spectrum toggle.
+  property var uiLyricsInBar: null
+  readonly property bool lyricsInBar: lyricsEnabled && (root.uiLyricsInBar !== null
+    ? root.uiLyricsInBar : String(root.setting("lyricsInBar", "true")) !== "false")
+  function setLyricsInBar(on) {
+    root.uiLyricsInBar = !!on
+    root.saveUi()
+  }
   readonly property string lyricsSource: {
     var v = String(root.setting("lyricsSource", "auto"))
     return (v === "lrclib" || v === "captions") ? v : "auto"
@@ -124,6 +143,7 @@ BarWidget {
     var line = barLyricsClock.lines[barLyricsClock.index]
     return line ? String(line.text || "").trim() : ""
   }
+
 
   // The card opens on Lyrics when the song has them, unless a tab was picked
   // by hand since the card opened.
@@ -154,6 +174,7 @@ BarWidget {
   function saveUi() {
     uiStateFile.setText(JSON.stringify({
       ambientWave: root.ambientEnabled,
+      lyricsInBar: root.uiLyricsInBar,
       size: root.uiSize,
       iconWidth: root.uiIconWidth
     }) + "\n")
@@ -171,6 +192,24 @@ BarWidget {
     root.saveUi()
   }
 
+  // Which bar is in use: islands get the island colour.
+  FileView {
+    path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try {
+        var cfg = JSON.parse(text() || "{}")
+        root.islandBar = /island/i.test(String((cfg.bar && cfg.bar.id) || ""))
+        // Read straight from the config the double click writes: the bar's
+        // own `transparent` only flips after it has sampled the wallpaper
+        // for a text colour, which made the switch to text colour lag.
+        root.islandsHidden = !!(cfg.bar && cfg.bar.transparent === true)
+      } catch (e) {}
+    }
+  }
+
   FileView {
     id: uiStateFile
     path: root.uiStatePath
@@ -183,14 +222,26 @@ BarWidget {
       try {
         var saved = JSON.parse(text() || "{}")
         if (typeof saved.ambientWave === "boolean") root.ambientEnabled = saved.ambientWave
+        root.uiLyricsInBar = typeof saved.lyricsInBar === "boolean" ? saved.lyricsInBar : null
         root.uiSize = (saved.size === "icon" || saved.size === "title" || saved.size === "full") ? saved.size : ""
         root.uiIconWidth = Number(saved.iconWidth) > 0 ? Number(saved.iconWidth) : -1
       } catch (e) {}
     }
   }
 
-  readonly property real ambientOpacity: Math.max(0.05, Math.min(1,
-    (Number(root.setting("ambientOpacity", 55)) || 55) / 100))
+  // "island": the spectrum is drawn in the islands' own colour (the bar
+  // background), so it reads as part of the bar. "text": the bar's text
+  // colour, as before.
+  // "auto" picks island while an island bar is showing its islands, text
+  // otherwise: a plain bar, or an island bar switched to transparent (double
+  // click), has no islands to match.
+  readonly property string ambientColorSetting: String(root.setting("ambientColor", "auto"))
+  property bool islandBar: false
+  property bool islandsHidden: false
+  readonly property string ambientColor: ambientColorSetting === "island" || ambientColorSetting === "text"
+    ? ambientColorSetting : (islandBar && !islandsHidden ? "island" : "text")
+  readonly property real ambientOpacity: root.ambientColor === "island" ? 0.92
+    : Math.max(0.05, Math.min(1, (Number(root.setting("ambientOpacity", 55)) || 55) / 100))
   readonly property real ambientHeight: Math.max(0.1, Math.min(1,
     (Number(root.setting("ambientHeight", 62)) || 62) / 100))
 
@@ -284,13 +335,13 @@ BarWidget {
   // `summon`, not `toggle`: this button means "show me the full player", and
   // toggle *closes* the panel whenever it happens to be open already — which
   // threw the payload away with it.
-  function openFullPlayer() {
+  function openFullPlayer(tab) {
     var payload = {
       search: root.miniSearchText,
       results: root.miniSearchResults || [],
       lyrics: root.lyricsEnabled,
       lyricsSize: String(root.setting("lyricsSize", "normal")),
-      tab: root.miniTab === "lyrics" ? "lyrics" : ""
+      tab: typeof tab === "string" && tab !== "" ? tab : (root.miniTab === "lyrics" ? "lyrics" : "")
     }
     popupOpen = false
     toggleProcess.running = false
@@ -665,13 +716,14 @@ BarWidget {
         // dissolves at the edges instead of being guillotined mid-letter —
         // only worth paying for while it actually scrolls.
         clip: true
-        layer.enabled: marquee.overflowing
+        layer.enabled: marquee.overflowing || marquee.lyricStrip
         layer.effect: MultiEffect {
           maskEnabled: true
           maskSource: marqueeFade
         }
         height: titleA.implicitHeight
-        width: Math.max(0, Math.min(root.maxLabelWidth - root.titleInset, titleA.implicitWidth))
+        width: Math.max(0, marquee.lyricStrip ? root.maxLabelWidth - root.titleInset
+          : Math.min(root.maxLabelWidth - root.titleInset, titleA.implicitWidth))
 
         // An error outranks the track: it is the one thing here you cannot
         // act on from the bar, and it is why the title is stale or missing.
@@ -688,13 +740,17 @@ BarWidget {
         readonly property string fullText: root.lastError !== ""
           ? root.lastError
           : (root.hasTrack
-            ? (root.barLyricLine !== "" ? root.barLyricLine : Api.barTrackText(root.title, root.artist, true, false))
+            ? Api.barTrackText(root.title, root.artist, true, false)
             : "")
         readonly property real gapPx: Style.space(28)
         readonly property bool overflowing: titleA.implicitWidth > width + 1
+        // Timed lyrics: the whole song as one strip that moves continuously.
+        readonly property bool lyricStrip: root.barLyricsActive
+        readonly property bool lyricMode: lyricStrip
 
         Row {
           id: ticker
+          visible: !marquee.lyricStrip
           spacing: marquee.gapPx
 
           Text {
@@ -710,7 +766,7 @@ BarWidget {
           }
           Text {
             textFormat: Text.PlainText
-            visible: marquee.overflowing
+            visible: marquee.overflowing && !marquee.lyricMode
             text: marquee.fullText
             color: titleA.color
             font.family: titleA.font.family
@@ -725,7 +781,7 @@ BarWidget {
         // the opening words, which is the part that identifies the track.
         SequentialAnimation {
           id: scrollAnim
-          running: marquee.overflowing && marquee.visible
+          running: marquee.overflowing && marquee.visible && !marquee.lyricMode
           loops: Animation.Infinite
           PauseAnimation { duration: 2200 }
           NumberAnimation {
@@ -738,7 +794,174 @@ BarWidget {
           // Back to the start before the next rest, so the pause is always
           // spent showing the beginning of the title rather than the end.
           ScriptAction { script: ticker.x = 0 }
-          onRunningChanged: if (!running) ticker.x = 0
+          onRunningChanged: if (!running && !marquee.lyricMode) ticker.x = 0
+        }
+
+        // The lyric strip: the title, then every line in order, instrumental
+        // breaks as a note. A reading point a little in from the left edge
+        // moves through each line exactly across that line's own time (start
+        // to the next line's start), so the strip never jumps back: fast lines
+        // pass quickly, long breaks drift slowly, and the next words are
+        // always coming in from the right.
+        Row {
+          id: strip
+          visible: marquee.lyricStrip
+          spacing: marquee.gapPx
+          readonly property real readPoint: marquee.width * 0.18
+
+          // Segment 0 is the title; segment i + 1 is lyric line i.
+          readonly property var segments: {
+            var out = [Api.barTrackText(root.title, root.artist, true, false)]
+            var ls = barLyricsClock.lines
+            for (var i = 0; i < ls.length; i++) {
+              var w = String(ls[i].text || "").trim()
+              out.push(w !== "" ? w : "\u266A")
+            }
+            return out
+          }
+          readonly property int seg: barLyricsClock.index + 1
+
+          // Knots: (time a segment starts, where it starts on the strip),
+          // plus the end of the song. Position between knots follows a
+          // monotone cubic (Fritsch-Carlson), so the speed changes smoothly
+          // from one line to the next instead of jumping at each boundary.
+          property var knots: []
+          function rebuildKnots() {
+            var ls = barLyricsClock.lines
+            var out = []
+            for (var i = 0; i < strip.segments.length; i++) {
+              var item = stripRepeater.itemAt(i)
+              if (!item) { strip.knots = []; return }
+              var t = i === 0 ? 0 : Number(ls[i - 1].ms)
+              if (out.length > 0 && t <= out[out.length - 1].t) t = out[out.length - 1].t + 1
+              out.push({ t: t, x: item.x })
+            }
+            var last = stripRepeater.itemAt(strip.segments.length - 1)
+            var endT = Math.max(out.length ? out[out.length - 1].t + 4000 : 4000,
+                                root.ytService ? Number(root.ytService.durationMs || 0) : 0)
+            out.push({ t: endT, x: last ? last.x + last.width : 0 })
+            // Slopes
+            var n = out.length
+            var d = [], m = []
+            for (var k = 0; k < n - 1; k++) d.push((out[k + 1].x - out[k].x) / Math.max(1, out[k + 1].t - out[k].t))
+            for (var k2 = 0; k2 < n; k2++) {
+              if (k2 === 0) m.push(d[0] || 0)
+              else if (k2 === n - 1) m.push(d[n - 2] || 0)
+              else m.push(d[k2 - 1] * d[k2] <= 0 ? 0 : (d[k2 - 1] + d[k2]) / 2)
+            }
+            for (var k3 = 0; k3 < n - 1; k3++) {
+              if (d[k3] === 0) { m[k3] = 0; m[k3 + 1] = 0; continue }
+              var a = m[k3] / d[k3], b = m[k3 + 1] / d[k3], h = a * a + b * b
+              if (h > 9) { var tau = 3 / Math.sqrt(h); m[k3] = tau * a * d[k3]; m[k3 + 1] = tau * b * d[k3] }
+            }
+            for (var k4 = 0; k4 < n; k4++) out[k4].m = m[k4]
+            strip.knots = out
+          }
+          function posAt(t) {
+            var ks = strip.knots
+            if (ks.length < 2) return 0
+            if (t <= ks[0].t) return ks[0].x
+            if (t >= ks[ks.length - 1].t) return ks[ks.length - 1].x
+            var lo = 0, hi = ks.length - 2
+            while (lo < hi) { var mid = (lo + hi + 1) >> 1; if (ks[mid].t <= t) lo = mid; else hi = mid - 1 }
+            var k0 = ks[lo], k1 = ks[lo + 1]
+            var h = k1.t - k0.t, s = (t - k0.t) / h
+            var s2 = s * s, s3 = s2 * s
+            return (2 * s3 - 3 * s2 + 1) * k0.x + (s3 - 2 * s2 + s) * h * k0.m
+                 + (-2 * s3 + 3 * s2) * k1.x + (s3 - s2) * h * k1.m
+          }
+          onSegmentsChanged: Qt.callLater(rebuildKnots)
+          // The Row has laid its texts out once its size settles.
+          onImplicitWidthChanged: Qt.callLater(rebuildKnots)
+          Connections {
+            target: root.ytService
+            function onDurationMsChanged() { Qt.callLater(strip.rebuildKnots) }
+          }
+
+          // Its own song clock, advanced every frame by real time, so it never
+          // waits for a position report. Reports from the backend only steer
+          // it gently (or snap it after a seek), so they never show as a
+          // stop-and-go. The shared lyrics clock caps its guess at 2 s
+          // between reports, which is what made the strip pause.
+          property real localT: -1
+          FrameAnimation {
+            running: marquee.lyricStrip && marquee.visible && strip.knots.length > 1
+            onTriggered: {
+              var svc = root.ytService
+              if (!svc) return
+              var c = barLyricsClock
+              var target = Number(svc.positionMs || 0)
+              if (root.playing && svc.positionStampMs > 0)
+                target += Math.max(0, Date.now() - svc.positionStampMs)
+              target += c.leadMs - c.offsetMs
+              if (strip.localT < 0 || Math.abs(target - strip.localT) > 1200) strip.localT = target
+              else {
+                if (root.playing) strip.localT += frameTime * 1000
+                strip.localT += (target - strip.localT) * Math.min(1, frameTime * 2)
+              }
+              strip.x = strip.readPoint - strip.posAt(strip.localT)
+            }
+          }
+
+          // A break is drawn at a fixed width, so its countdown never shifts
+          // the strip.
+          TextMetrics {
+            id: breakMetrics
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.body
+            text: "\u266A 0:00"
+          }
+
+          Repeater {
+            id: stripRepeater
+            model: marquee.lyricStrip ? strip.segments : []
+            delegate: Item {
+              id: segItem
+              required property var modelData
+              required property int index
+              readonly property bool isBreak: index > 0 && modelData === "\u266A"
+              readonly property bool isCurrent: index === strip.seg
+              width: isBreak ? breakMetrics.advanceWidth : segText.implicitWidth
+              height: segText.implicitHeight
+
+              // Seconds until singing comes back, on the break being played.
+              readonly property string countdown: {
+                if (!isBreak || !isCurrent) return ""
+                var ls = barLyricsClock.lines
+                if (index >= ls.length) return ""
+                var left = Number(ls[index].ms) - strip.localT
+                return left > 3000 ? " " + Api.formatTime(left) : ""
+              }
+
+              Text {
+                id: segText
+                textFormat: Text.PlainText
+                text: segItem.modelData + segItem.countdown
+                color: segItem.isCurrent
+                  ? root.bar.barForeground
+                  : Qt.rgba(root.bar.barForeground.r, root.bar.barForeground.g, root.bar.barForeground.b,
+                            segItem.index < strip.seg ? 0.38 : 0.62)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.body
+                font.italic: segItem.index === 0
+                Behavior on color { ColorAnimation { duration: 200 } }
+              }
+              // The part already sung, in the cover's colour: everything of
+              // this line left of the reading point.
+              Item {
+                visible: segItem.isCurrent && !segItem.isBreak && segItem.index > 0
+                width: Math.max(0, Math.min(segItem.width, strip.readPoint - (strip.x + segItem.x)))
+                height: segItem.height
+                clip: true
+                Text {
+                  textFormat: Text.PlainText
+                  text: segText.text
+                  color: miniTint.found ? miniTint.accent : Color.accent
+                  font: segText.font
+                }
+              }
+            }
+          }
         }
       }
 
@@ -797,6 +1020,11 @@ BarWidget {
       } else {
         root.popupOpen = !root.popupOpen
       }
+    }
+    // Double-click the chip: straight to the full player.
+    onDoubleClicked: function(mouse) {
+      if (mouse.button !== Qt.LeftButton) return
+      root.openFullPlayer()
     }
     onWheel: function(wheel) {
       if (!root.ytService) return
@@ -1084,9 +1312,14 @@ BarWidget {
     AmbientWave {
       anchors.fill: parent
       levels: root.ytService ? root.ytService.spectrumBands : []
-      color: root.bar ? root.bar.foreground : "white"
+      // Islands showing: the islands' own colour. Otherwise the colour the
+      // bar picked for its icons and text over this wallpaper, so the
+      // spectrum always matches what sits next to it.
+      color: root.ambientColor === "island"
+        ? (root.bar ? root.bar.background : "#2d353b")
+        : (root.bar ? root.bar.barForeground : "white")
       darkColor: root.bar ? root.bar.background : "#2d353b"
-      tones: root.bar && root.bar.transparent ? root.ambientTones : []
+      tones: []
       heightFraction: root.ambientHeight
       gaps: root.ambientGaps
       opacity: root.hasTrack && root.playing && !root.ambientSilent ? root.ambientOpacity : 0
@@ -1263,15 +1496,19 @@ BarWidget {
         ? Math.round(Math.max(Style.gapsOut, Math.min(noteCentreY - height / 2,
                                                       parent.height - height - Style.gapsOut)))
         : (barPos === "top" ? barThickness : 0) + Style.gapsOut
-      width: Style.space(320)
+      width: Style.space(340)
       height: root.vertical
         ? Math.min(column.implicitHeight + card.contentTopInset + card.contentBottomInset,
                    onSide ? parent.height - 2 * Style.gapsOut : root.miniCardMaxHeight)
-        : Math.min(root.miniCardHeight, onSide ? parent.height - 2 * Style.gapsOut : root.miniCardMaxHeight)
+        // Sized to what it holds (the pane is a fixed height here, so the
+        // card still keeps one size); a fixed number cut off the bottom of
+        // the pane, language chip included, once the card gained rows.
+        : Math.min(column.implicitHeight + card.contentTopInset + card.contentBottomInset,
+                   onSide ? parent.height - 2 * Style.gapsOut : root.miniCardMaxHeight)
       // No Behavior here: the pane's own height animates and the card follows it.
       radius: Style.cornerRadius
-      color: Color.popups.background
-      borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
+      color: miniTint.found ? miniTint.deepAnimated : Color.popups.background
+      borderSpec: Border.surfaceSpec("popups", "border", miniTint.found ? Qt.rgba(miniTint.accent.r, miniTint.accent.g, miniTint.accent.b, 0.7) : Color.popups.border, Math.max(1, Style.space(2)))
       padding: Style.spacing.panelPadding
 
     MouseArea {
@@ -1292,6 +1529,15 @@ BarWidget {
       Keys.onEscapePressed: root.popupOpen = false
       Keys.onPressed: function(event) { if (root.cardKey(event)) event.accepted = true }
 
+    // Colours from the cover art (see AlbumTint.qml). Covered by the blur.
+    AlbumTint {
+      id: miniTint
+      x: 0
+      y: 0
+      source: root.ytService ? root.ytService.trackThumbnail : ""
+      base: Color.popups.background
+    }
+
     CoverBlur {
       // Reaches the card edges (the surface insets its children), so the
       // blur has no visible rectangle of its own.
@@ -1304,6 +1550,7 @@ BarWidget {
       height: Style.space(230) + card.contentTopInset
       source: root.ytService ? root.ytService.trackThumbnail : ""
       strength: 0.55
+      fadeTo: miniTint.found ? miniTint.deepAnimated : Color.popups.background
     }
 
     Column {
@@ -1311,36 +1558,18 @@ BarWidget {
       anchors.fill: parent
       spacing: Style.space(12)
 
-      // Header: what this is, and the way into the full player.
-      RowLayout {
-        width: parent.width
-        height: Style.space(26)
-        Text {
-          Layout.fillWidth: true
-          text: root.hasTrack ? (root.playing ? "Now playing" : "Paused") : "Music"
-          color: Qt.darker(root.bar.foreground, 1.3)
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
-        }
-        FlatButton {
-          buttonSize: Style.space(26)
-          iconSize: Style.font.icon
-          iconText: "\u{f0293}"
-          foreground: root.bar.foreground
-          tooltipText: "Full player"
-          onClicked: root.openFullPlayer()
-        }
-      }
-
-      // Art beside the title, not above it, so the card stays short.
+      // Art beside the title, not above it, so the card stays short. The
+      // way into the full player sits in the corner.
       RowLayout {
         width: parent.width
         spacing: Style.space(14)
 
+
         Rectangle {
-          Layout.preferredWidth: Style.space(124)
-          Layout.preferredHeight: Style.space(124)
-          radius: Style.space(22)
+          Layout.preferredWidth: Style.space(112)
+          Layout.preferredHeight: Style.space(112)
+          Layout.alignment: Qt.AlignTop
+          radius: Style.space(14)
           color: root.ytService && root.ytService.trackThumbnail !== ""
             ? "transparent"
             : Qt.rgba(root.bar.barForeground.r, root.bar.barForeground.g, root.bar.barForeground.b, 0.08)
@@ -1370,60 +1599,134 @@ BarWidget {
           }
         }
 
-        Column {
+        // Right of the art: the corner actions in one quiet row, then the
+        // title and channel.
+        ColumnLayout {
           Layout.fillWidth: true
+          Layout.alignment: Qt.AlignTop
           spacing: Style.space(4)
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: root.hasTrack ? root.title : "Nothing playing"
-            color: root.bar.foreground
-            font.family: Style.font.family
-            font.bold: true
-            font.pixelSize: Style.font.subtitle
-            wrapMode: Text.Wrap
-            maximumLineCount: 3
-            elide: Text.ElideRight
+          RowLayout {
+            Layout.alignment: Qt.AlignRight
+            Layout.topMargin: -Style.space(6)
+            Layout.rightMargin: -Style.space(6)
+            spacing: Style.space(2)
+            FlatButton {
+              id: copyLinkButton
+              property bool copied: false
+              accent: miniTint.accentAnimated
+              onAccent: miniTint.onAccent
+              buttonSize: Style.space(28)
+              iconSize: Style.font.icon
+              iconText: copied ? "\u{f012c}" : "\u{f0337}"
+              selected: copied
+              enabled: !!(root.ytService && root.ytService.track && root.ytService.track.videoId)
+              foreground: root.bar.foreground
+              tooltipText: copied ? "Link copied" : "Copy link"
+              onClicked: {
+                var track = root.ytService ? root.ytService.track : null
+                if (!track || !track.videoId) return
+                // The song itself, not this moment in it.
+                Quickshell.clipboardText = "https://www.youtube.com/watch?v=" + encodeURIComponent(track.videoId)
+                copied = true
+                copiedTimer.restart()
+              }
+              Timer { id: copiedTimer; interval: 1500; onTriggered: copyLinkButton.copied = false }
+            }
+            FlatButton {
+              accent: miniTint.accentAnimated
+              onAccent: miniTint.onAccent
+              buttonSize: Style.space(28)
+              iconSize: Style.font.icon
+              iconText: "\u{f05c3}"
+              enabled: !!(root.ytService && root.ytService.track && root.ytService.track.videoId)
+              foreground: root.bar.foreground
+              tooltipText: "Open on YouTube (at this moment)"
+              onClicked: {
+                var track = root.ytService ? root.ytService.track : null
+                if (!track || !track.videoId) return
+                var seconds = Math.floor(Number(root.ytService.positionMs || 0) / 1000)
+                var url = "https://www.youtube.com/watch?v=" + encodeURIComponent(track.videoId)
+                  + (seconds > 5 ? "&t=" + seconds + "s" : "")
+                if (root.playing) root.ytService.pause()
+                Qt.openUrlExternally(url)
+              }
+            }
+            FlatButton {
+              accent: miniTint.accentAnimated
+              onAccent: miniTint.onAccent
+              buttonSize: Style.space(28)
+              iconSize: Style.font.icon
+              iconText: "\u{f0293}"
+              foreground: root.bar.foreground
+              tooltipText: "Full player (F)"
+              onClicked: root.openFullPlayer()
+            }
           }
-          Text {
-            width: parent.width
-            visible: root.artist !== ""
-            textFormat: Text.PlainText
-            text: root.artist
-            color: Qt.darker(root.bar.foreground, 1.3)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
+          Column {
+            id: cardTitle
+            Layout.fillWidth: true
+            spacing: Style.space(4)
+
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              id: cardTitleText
+              text: root.hasTrack ? root.title : "Nothing playing"
+              color: root.bar.foreground
+              font.family: Style.font.family
+              font.bold: true
+              font.pixelSize: Style.font.subtitle
+              wrapMode: Text.Wrap
+              maximumLineCount: 3
+              elide: Text.ElideRight
+              // The title opens the full player, like the corner button.
+              MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.openFullPlayer()
+                onContainsMouseChanged: cardTitleText.font.underline = containsMouse
+              }
+            }
+            Text {
+              width: parent.width
+              visible: root.artist !== ""
+              textFormat: Text.PlainText
+              text: root.artist
+              color: Qt.darker(root.bar.foreground, 1.3)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+            }
           }
         }
       }
 
-      ColumnLayout {
+      // Seek, with the times on the same line.
+      RowLayout {
         width: parent.width
-        spacing: Style.space(2)
-
+        spacing: Style.space(10)
+        Text {
+          text: Api.formatTime(root.ytService ? root.ytService.positionMs : 0)
+          color: Qt.darker(root.bar.foreground, 1.3)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
         PanelSlider {
           Layout.fillWidth: true
           minimum: 0
           maximum: Math.max(1, root.ytService ? root.ytService.durationMs : 1)
           value: root.ytService ? root.ytService.positionMs : 0
+          fillColor: miniTint.accentAnimated
+          knobColor: Qt.lighter(miniTint.accentAnimated, 1.15)
+          trackColor: Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.14)
           onMoved: function(v) { if (root.ytService) root.ytService.seek(v) }
         }
-        RowLayout {
-          Layout.fillWidth: true
-          Text {
-            text: Api.formatTime(root.ytService ? root.ytService.positionMs : 0)
-            color: Qt.darker(root.bar.foreground, 1.3)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-          Item { Layout.fillWidth: true }
-          Text {
-            text: Api.formatTime(root.ytService ? root.ytService.durationMs : 0)
-            color: Qt.darker(root.bar.foreground, 1.3)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
+        Text {
+          text: Api.formatTime(root.ytService ? root.ytService.durationMs : 0)
+          color: Qt.darker(root.bar.foreground, 1.3)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
         }
       }
 
@@ -1433,14 +1736,20 @@ BarWidget {
         spacing: 0
 
         FlatButton {
+
+          accent: miniTint.accentAnimated
+
+          onAccent: miniTint.onAccent
           iconText: "\u{f049f}"
           selected: !!(root.ytService && root.ytService.shuffle)
-          foreground: root.bar.foreground
+          foreground: Qt.darker(root.bar.foreground, 1.35)
           tooltipText: "Shuffle"
           onClicked: root.ytService && root.ytService.setShuffle(!root.ytService.shuffle)
         }
         Item { Layout.fillWidth: true }
         FlatButton {
+          accent: miniTint.accentAnimated
+          onAccent: miniTint.onAccent
           iconText: "\u{f04ae}"
           iconSize: Style.font.iconLarge
           foreground: root.bar.foreground
@@ -1449,6 +1758,8 @@ BarWidget {
         }
         Item { Layout.fillWidth: true }
         FlatButton {
+          accent: miniTint.accentAnimated
+          onAccent: miniTint.onAccent
           primary: true
           buttonSize: Style.space(52)
           iconSize: Style.font.iconLarge
@@ -1458,6 +1769,8 @@ BarWidget {
         }
         Item { Layout.fillWidth: true }
         FlatButton {
+          accent: miniTint.accentAnimated
+          onAccent: miniTint.onAccent
           iconText: "\u{f04ad}"
           iconSize: Style.font.iconLarge
           foreground: root.bar.foreground
@@ -1466,84 +1779,233 @@ BarWidget {
         }
         Item { Layout.fillWidth: true }
         FlatButton {
+          accent: miniTint.accentAnimated
+          onAccent: miniTint.onAccent
           iconText: root.ytService && root.ytService.repeat === "track" ? "\u{f0458}" : "\u{f0456}"
           selected: root.ytService && root.ytService.repeat !== "off"
-          foreground: root.bar.foreground
+          foreground: Qt.darker(root.bar.foreground, 1.35)
           tooltipText: "Repeat"
           onClicked: root.ytService && root.ytService.cycleRepeat()
         }
       }
 
-      // Volume and the four view toggles share one row.
+      // Volume on its own row, full width.
       RowLayout {
         width: parent.width
-        spacing: Style.space(8)
+        spacing: Style.space(10)
 
         Text {
-          text: "\u{f057e}"
+          text: root.ytService && root.ytService.volume === 0 ? "\u{f0581}" : "\u{f057e}"
           textFormat: Text.PlainText
           color: Qt.darker(root.bar.foreground, 1.2)
           font.family: Style.font.family
           font.pixelSize: Style.font.icon
+          MouseArea {
+            anchors.fill: parent
+            anchors.margins: -Style.space(4)
+            cursorShape: Qt.PointingHandCursor
+            onClicked: if (root.ytService) root.ytService.setVolume(root.ytService.volume > 0 ? 0 : 50)
+          }
         }
         PanelSlider {
           Layout.fillWidth: true
           minimum: 0
           maximum: 100
           value: root.ytService ? root.ytService.volume : 80
+          // Neutral, so it never reads as the seek bar.
+          fillColor: Qt.darker(root.bar.foreground, 1.1)
+          knobColor: root.bar.foreground
+          trackColor: Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.14)
           onMoved: function(v) { if (root.ytService) root.ytService.setVolume(v) }
         }
-        FlatButton {
-          buttonSize: Style.space(30)
-          iconText: "\u{f0567}"
-          selected: !!(root.ytService && root.ytService.videoActive)
+      }
+
+      // The card's tools: things you do per song as tiles, and the
+      // set-and-forget bar options behind one "Bar" tile.
+      RowLayout {
+        width: parent.width
+        spacing: Style.space(6)
+
+        MiniTile {
+          accent: miniTint.accentAnimated
+          foreground: root.bar.foreground
+          glyph: "\u{f0567}"
+          label: "Video"
+          on: !!(root.ytService && root.ytService.videoActive)
           enabled: !!(root.ytService && root.ytService.hasTrack)
-          foreground: root.bar.foreground
-          tooltipText: root.ytService && root.ytService.videoActive ? "Close the video window" : "Watch the video"
-          onClicked: root.toggleVideo()
+          tip: root.ytService && root.ytService.videoActive ? "Close the video window (V)" : "Watch the video (V)"
+          onPicked: root.toggleVideo()
         }
-        FlatButton {
-          buttonSize: Style.space(30)
-          iconText: "\u{f147d}"
-          selected: root.ambientEnabled
+        MiniTile {
+          accent: miniTint.accentAnimated
           foreground: root.bar.foreground
-          tooltipText: root.ambientEnabled ? "Hide the spectrum across the bar" : "Show the spectrum across the bar"
-          onClicked: root.setAmbient(!root.ambientEnabled)
+          // Only when this song has timed lyrics to sing along to.
+          visible: root.lyricsEnabled && barLyricsClock.synced && barLyricsClock.lines.length > 0
+          glyph: "\u{f05cb}"
+          label: "Karaoke"
+          tip: "Karaoke (opens the big player)"
+          onPicked: root.openFullPlayer("karaoke")
         }
-        FlatButton {
-          buttonSize: Style.space(30)
-          iconText: "\u{f066a}"
-          selected: root.miniEqOpen
+        MiniTile {
+          accent: miniTint.accentAnimated
           foreground: root.bar.foreground
-          tooltipText: root.miniEqOpen ? "Hide equaliser" : "Show equaliser"
-          onClicked: root.miniEqOpen = !root.miniEqOpen
+          glyph: "\u{f066a}"
+          label: "EQ"
+          on: root.miniEqOpen
+          tip: root.miniEqOpen ? "Hide equaliser (E)" : "Equaliser (E)"
+          onPicked: root.miniEqOpen = !root.miniEqOpen
         }
-        FlatButton {
-          buttonSize: Style.space(30)
-          iconText: "\u{f03cc}"
-          enabled: !!(root.ytService && root.ytService.track && root.ytService.track.videoId)
+        MiniTile {
+          id: barTile
+          accent: miniTint.accentAnimated
           foreground: root.bar.foreground
-          tooltipText: "Open in browser"
-          onClicked: {
-            var track = root.ytService ? root.ytService.track : null
-            if (!track || !track.videoId) return
-            var seconds = Math.floor(Number(root.ytService.positionMs || 0) / 1000)
-            var url = "https://www.youtube.com/watch?v=" + encodeURIComponent(track.videoId)
-              + (seconds > 5 ? "&t=" + seconds + "s" : "")
-            if (root.playing) root.ytService.pause()
-            Qt.openUrlExternally(url)
+          glyph: "\u{f0493}"
+          label: "Bar"
+          on: barMenu.opened
+          tip: "What the bar shows: spectrum, lyrics, chip width"
+          onPicked: barMenu.opened ? barMenu.close() : barMenu.open()
+
+          Popup {
+            id: barMenu
+            // Opens upwards, so it never sits over the tabs.
+            y: -height - Style.space(6)
+            x: barTile.width - width
+            width: Style.space(230)
+            padding: Style.space(6)
+            background: Rectangle {
+              color: Color.popups.background
+              radius: Style.space(12)
+              border.width: Math.max(1, Style.normalBorderWidth)
+              border.color: Qt.rgba(miniTint.accent.r, miniTint.accent.g, miniTint.accent.b, 0.35)
+            }
+            contentItem: ColumnLayout {
+              spacing: Style.space(2)
+              Text {
+                Layout.leftMargin: Style.space(8)
+                Layout.topMargin: Style.space(4)
+                Layout.bottomMargin: Style.space(4)
+                text: "IN THE BAR"
+                color: Qt.darker(Color.popups.text, 1.6)
+                font.family: Style.font.family
+                font.bold: true
+                font.letterSpacing: 1
+                font.pixelSize: Style.font.caption
+              }
+              Repeater {
+                model: [
+                  { key: "wave", label: "Spectrum", glyph: "\u{f147d}", show: true },
+                  { key: "lyrics", label: "Lyrics", glyph: "\u{f0369}", show: root.lyricsEnabled && !root.vertical },
+                  { key: "wide", label: "Wide chip", glyph: "\u{f084e}", show: !root.vertical }
+                ]
+                delegate: Rectangle {
+                  id: barOpt
+                  required property var modelData
+                  readonly property bool isOn: modelData.key === "wave" ? root.ambientEnabled
+                    : modelData.key === "lyrics" ? root.lyricsInBar : root.sizeMode === "full"
+                  visible: modelData.show
+                  Layout.fillWidth: true
+                  implicitHeight: Style.space(36)
+                  radius: Style.space(8)
+                  color: barOptArea.containsMouse ? Qt.rgba(Color.popups.text.r, Color.popups.text.g, Color.popups.text.b, 0.08) : "transparent"
+                  RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: Style.space(10)
+                    anchors.rightMargin: Style.space(10)
+                    spacing: Style.space(10)
+                    Text {
+                      text: barOpt.modelData.glyph
+                      color: barOpt.isOn ? miniTint.accent : Color.popups.text
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.icon
+                    }
+                    Text {
+                      Layout.fillWidth: true
+                      text: barOpt.modelData.label
+                      color: Color.popups.text
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption + 1
+                    }
+                    // Switch
+                    Rectangle {
+                      implicitWidth: Style.space(32)
+                      implicitHeight: Style.space(18)
+                      radius: height / 2
+                      color: barOpt.isOn ? miniTint.accent : Qt.rgba(Color.popups.text.r, Color.popups.text.g, Color.popups.text.b, 0.2)
+                      Behavior on color { ColorAnimation { duration: 120 } }
+                      Rectangle {
+                        width: parent.height - Style.space(4)
+                        height: width
+                        radius: width / 2
+                        y: Style.space(2)
+                        x: barOpt.isOn ? parent.width - width - Style.space(2) : Style.space(2)
+                        color: barOpt.isOn ? miniTint.onAccent : Color.popups.text
+                        Behavior on x { NumberAnimation { duration: 120 } }
+                      }
+                    }
+                  }
+                  MouseArea {
+                    id: barOptArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                      if (barOpt.modelData.key === "wave") root.setAmbient(!root.ambientEnabled)
+                      else if (barOpt.modelData.key === "lyrics") root.setLyricsInBar(!root.lyricsInBar)
+                      else root.toggleWide()
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
 
-      // Search and the bar-chip switch.
-      RowLayout {
+      // Search has no band of its own: typing in the card searches and the
+      // results take over the pane. While there is a query, the field shows
+      // in the tabs' place; empty, it stays out of sight but keeps the
+      // keyboard (an invisible item could not), so typing still lands in it.
+      Item {
+        id: miniTabs
         width: parent.width
-        spacing: Style.space(8)
+        visible: !root.miniEqOpen
+        readonly property bool searching: root.miniSearchText !== ""
+        implicitHeight: searching ? Style.space(40) : Style.space(36)
+        height: implicitHeight
+
+      Rectangle {
+        anchors.fill: parent
+        // Under the tabs while there is no query, so the invisible field
+        // never sits on top of them and takes their clicks.
+        z: miniTabs.searching ? 1 : -1
+        opacity: miniTabs.searching ? 1 : 0
+        radius: height / 2
+        color: Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, miniSearchField.activeFocus ? 0.10 : 0.06)
+        border.width: 1
+        border.color: miniSearchField.activeFocus
+          ? Qt.rgba(miniTint.accent.r, miniTint.accent.g, miniTint.accent.b, 0.6)
+          : Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.12)
+
+        Text {
+          id: miniSearchGlyph
+          anchors.left: parent.left
+          anchors.leftMargin: Style.space(14)
+          anchors.verticalCenter: parent.verticalCenter
+          text: "\u{f0349}"
+          color: Qt.darker(root.bar.foreground, 1.4)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.icon
+        }
 
         TextField {
           id: miniSearchField
-          Layout.fillWidth: true
+          anchors.left: miniSearchGlyph.right
+          anchors.leftMargin: Style.space(8)
+          anchors.right: parent.right
+          anchors.rightMargin: Style.space(14)
+          anchors.verticalCenter: parent.verticalCenter
+          background: Item {}
+          horizontalPadding: 0
           placeholderText: root.lastError !== "" ? root.lastError
           : (root.ytService && root.ytService.backendReady ? "Search, or paste a link" : "Starting up…")
           text: root.miniSearchText
@@ -1571,34 +2033,66 @@ BarWidget {
           Keys.onUpPressed: root.moveMiniSelection(-1)
           Keys.onEscapePressed: function(event) { cardScope.forceActiveFocus(); event.accepted = true }
         }
-        FlatButton {
-          // The wide chip does not fit a vertical bar, so there is nothing to toggle.
-          visible: !root.vertical
-          buttonSize: Style.space(36)
-          iconText: root.sizeMode === "full" ? "\u{f084c}" : "\u{f084e}"
-          selected: root.sizeMode === "full"
-          foreground: root.bar.foreground
-          tooltipText: root.sizeMode === "full"
-            ? "Wide bar chip. Click for compact (icon only)"
-            : "Compact bar chip. Click for wide (title and controls)"
-          onClicked: root.toggleWide()
-        }
       }
 
-      Segmented {
-        id: miniTabs
-        width: parent.width
-        // The equaliser takes the tabs' row too while it is open, so it gets
-        // room to breathe and the card still keeps its size.
-        visible: !root.miniEqOpen
-        foreground: root.bar.foreground
-        current: root.miniTab
-        model: [
+      // Tabs: text with an underline in the cover's colour.
+      Item {
+        id: tabsRow
+        anchors.fill: parent
+        visible: !miniTabs.searching
+        readonly property var tabs: [
           { key: "next", label: "Up next" },
           { key: "recent", label: "Recent" },
           { key: "lists", label: "Lists" }
         ].concat(root.lyricsEnabled ? [{ key: "lyrics", label: "Lyrics" }] : [])
-        onPicked: function(key) { root.miniTab = key; root.miniTabTouched = true; root.clearMiniSearch() }
+
+        Rectangle {
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: parent.bottom
+          height: 1
+          color: Qt.rgba(root.bar.foreground.r, root.bar.foreground.g, root.bar.foreground.b, 0.10)
+        }
+        Row {
+          anchors.fill: parent
+          Repeater {
+            model: tabsRow.tabs
+            delegate: Item {
+              id: tabCell
+              required property var modelData
+              readonly property bool active: modelData.key === root.miniTab
+              width: tabsRow.width / Math.max(1, tabsRow.tabs.length)
+              height: tabsRow.height
+              Text {
+                anchors.centerIn: parent
+                text: tabCell.modelData.label
+                textFormat: Text.PlainText
+                color: tabCell.active ? root.bar.foreground
+                  : (tabArea.containsMouse ? Qt.darker(root.bar.foreground, 1.15) : Qt.darker(root.bar.foreground, 1.5))
+                font.family: Style.font.family
+                font.bold: tabCell.active
+                font.pixelSize: Style.font.caption + 1
+              }
+              Rectangle {
+                anchors.bottom: parent.bottom
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: parent.width - Style.space(8)
+                height: Style.space(2)
+                radius: 1
+                visible: tabCell.active
+                color: miniTint.accentAnimated
+              }
+              MouseArea {
+                id: tabArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: { root.miniTab = tabCell.modelData.key; root.miniTabTouched = true; root.clearMiniSearch() }
+              }
+            }
+          }
+        }
+      }
       }
 
       // One fixed-height pane. Results, a pasted playlist, the equaliser and
@@ -1713,8 +2207,8 @@ BarWidget {
                 compact: true
                 service: root.ytService
                 foreground: root.bar.foreground
-                accent: Color.accent
-                fadeTo: Color.popups.background
+                accent: miniTint.accentAnimated
+                fadeTo: miniTint.found ? miniTint.deepAnimated : Color.popups.background
               }
             }
           }
@@ -1737,7 +2231,7 @@ BarWidget {
           delegate: TrackRow {
             width: miniResultList.width
             item: modelData
-            compact: true
+            compact: false
             fg: root.bar.foreground
             highlighted: index === root.miniSelected
             onPlayRequested: {
@@ -1777,6 +2271,8 @@ BarWidget {
               }
             }
             FlatButton {
+              accent: miniTint.accentAnimated
+              onAccent: miniTint.onAccent
               iconText: "\u{f049f}"
               buttonSize: Style.space(32)
               foreground: root.bar.foreground
@@ -1784,6 +2280,8 @@ BarWidget {
               onClicked: root.playMiniPreview(true)
             }
             FlatButton {
+              accent: miniTint.accentAnimated
+              onAccent: miniTint.onAccent
               primary: true
               iconText: "\u{f040a}"
               buttonSize: Style.space(36)
@@ -1802,7 +2300,7 @@ BarWidget {
             delegate: TrackRow {
               width: ListView.view.width
               item: modelData
-              compact: true
+              compact: false
               fg: root.bar.foreground
               onPlayRequested: root.ytService && root.ytService.playQueueFrom(root.miniPreview.items, index)
               onQueueRequested: root.ytService && root.ytService.addToQueue(modelData)
@@ -1817,9 +2315,10 @@ BarWidget {
           compact: true
           service: root.ytService
           foreground: root.bar.foreground
-          accent: Color.accent
-          fadeTo: Color.popups.background
+          accent: miniTint.accentAnimated
+          fadeTo: miniTint.found ? miniTint.deepAnimated : Color.popups.background
           onOpenPlayerRequested: root.openFullPlayer()
+          onKaraokeRequested: root.openFullPlayer("karaoke")
         }
 
         // ---- tabs
@@ -1855,8 +2354,9 @@ BarWidget {
         Component {
           id: trackRowComp
           TrackRow {
+            accent: miniTint.accentAnimated
             item: rowData
-            compact: true
+            compact: false
             fg: root.bar.foreground
             highlighted: root.miniTab === "next" && rowIndex === (root.ytService ? root.ytService.queueIndex : -1)
             queueGlyph: root.miniTab === "next" ? "\u{f0156}" : "\u{f0415}"
@@ -1878,7 +2378,7 @@ BarWidget {
           Rectangle {
             height: Style.space(40)
             radius: Style.space(10)
-            color: listHover.containsMouse ? Style.hoverFillFor(root.bar.foreground, Color.accent) : "transparent"
+            color: listHover.containsMouse ? Style.hoverFillFor(root.bar.foreground, miniTint.accentAnimated) : "transparent"
             RowLayout {
               anchors.fill: parent
               anchors.leftMargin: Style.space(8)
@@ -1888,7 +2388,7 @@ BarWidget {
                 text: "\u{f0cb8}"
                 font.family: Style.font.family
                 font.pixelSize: Style.font.icon
-                color: Color.accent
+                color: miniTint.accentAnimated
               }
               Text {
                 Layout.fillWidth: true

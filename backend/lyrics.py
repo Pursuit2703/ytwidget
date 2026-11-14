@@ -665,6 +665,7 @@ class LyricsService:
         self._want_tr: dict[str, Any] | None = None
         self._base: dict[str, Any] = self._empty("")
         self._tr: dict[str, Any] = {}
+        self._sync: dict[str, Any] = {}
         self._result: dict[str, Any] = self._compose()
         self._candidates: dict[str, list[dict[str, Any]]] = {}
         self._captions: dict[str, dict[str, Any]] = {}
@@ -682,6 +683,7 @@ class LyricsService:
             if video_id and video_id == self._base.get("videoId"):
                 return
             self._tr = {}
+            self._sync = {}
             if not video_id:
                 self._base = self._empty("")
                 self._want = None
@@ -721,17 +723,29 @@ class LyricsService:
                           "fresh": True}
             self._base = dict(self._base, status="loading")
             self._tr = {}
+            self._sync = {}
             self._result = self._compose()
         self._on_change()
         self._wake.set()
 
-    def set_offset(self, offset_ms: int) -> None:
+    def set_offset(self, offset_ms: int, by: str = "user") -> None:
+        """`by` is "user" for a hand-set timing (never overridden by the
+        audio check) or "auto" for one the audio check found."""
         with self._lock:
-            self._base = dict(self._base, offsetMs=int(offset_ms))
+            self._base = dict(self._base, offsetMs=int(offset_ms), offsetBy=by)
             base = dict(self._base)
             self._result = self._compose()
         if base.get("videoId") and base["status"] not in ("loading", "offline", "off"):
             self._save(base)
+        self._on_change()
+
+    def set_sync(self, sync: dict[str, Any]) -> None:
+        """What the audio check thinks of the timing (see lyrics_sync.py)."""
+        with self._lock:
+            if self._sync == sync:
+                return
+            self._sync = dict(sync)
+            self._result = self._compose()
         self._on_change()
 
     def set_language(self, code: str) -> None:
@@ -784,7 +798,7 @@ class LyricsService:
         r = dict(self._base)
         tr = self._tr
         r.update(translateTo=self.translate_to, translatedTo="", translating=tr.get("busy", ""),
-                 translateError=tr.get("error", ""))
+                 translateError=tr.get("error", ""), sync=dict(self._sync))
         if tr.get("lines") is not None:
             r["lines"] = tr["lines"]
             r["translatedTo"] = tr["lang"]

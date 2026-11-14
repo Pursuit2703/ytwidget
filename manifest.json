@@ -43,12 +43,14 @@
       "videoGpu": "integrated",
       "vpnMode": "fallback",
       "ambientWave": false,
+      "ambientColor": "auto",
       "ambientOpacity": 55,
       "ambientHeight": 62,
       "lyrics": true,
       "lyricsInBar": true,
       "lyricsSource": "auto",
-      "lyricsSize": "normal"
+      "lyricsSize": "normal",
+      "lyricsWidth": 0
     },
     "schema": [
       {
@@ -172,6 +174,18 @@
         "description": "Draw the spectrum in the empty parts of the bar while something is playing. The waveform button in the widget's hover controls toggles it and remembers the choice."
       },
       {
+        "key": "ambientColor",
+        "type": "enum",
+        "label": "Bar spectrum colour",
+        "options": [
+          "auto",
+          "island",
+          "text"
+        ],
+        "defaultValue": "auto",
+        "description": "auto: the islands' colour on an island bar, the bar's text colour (light or dark against the wallpaper) on a plain bar. island / text force one."
+      },
+      {
         "key": "ambientOpacity",
         "type": "integer",
         "label": "Bar spectrum opacity",
@@ -179,7 +193,7 @@
         "max": 100,
         "step": 5,
         "defaultValue": 55,
-        "description": "Percent."
+        "description": "Percent. Used with the text colour; the island colour always matches the islands."
       },
       {
         "key": "ambientHeight",
@@ -204,6 +218,16 @@
         "label": "Lyrics in the bar",
         "defaultValue": true,
         "description": "When the bar chip is wide, show the line being sung where the title is. Between lines, and for songs without lyrics, the title shows as usual."
+      },
+      {
+        "key": "lyricsWidth",
+        "type": "integer",
+        "label": "Bar chip width while lyrics play",
+        "min": 0,
+        "max": 600,
+        "step": 10,
+        "defaultValue": 0,
+        "description": "Px. While timed lyrics are playing the chip widens to this, so more of the line shows. Paused, it goes back to its usual width for the buttons. 0 keeps it the same size always."
       },
       {
         "key": "lyricsSource",

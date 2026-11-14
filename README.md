@@ -116,6 +116,7 @@ exposed live in Omarchy's widget settings UI — no config file editing needed:
 | `maxWidth` | 128 | Bar title width, px |
 | `miniResults` | 12 | Search results the mini player fetches (the list scrolls after five rows) |
 | `crossfadeMs` | 500 | Crossfade between tracks (`0` = hard cut) |
+| `ambientColor` | `auto` | Bar spectrum colour: islands' colour on an island bar, text colour otherwise |
 | `subtitleLang` | `en` | Preferred subtitle language for the video window |
 | `videoQuality` | 1080 | Preferred video window height |
 | `videoWindowPercent` | 70 | Max % of screen the video window may fill |
@@ -182,11 +183,12 @@ Inside the card and the player, while the search box is not focused
 | `↑` / `↓` | volume +5 / -5 |
 | `M` | mute / unmute |
 | `1 2 3 4` | card tabs: Up next, Recent, Lists, Lyrics |
-| `1 2 3 4 5` | player tabs: Search, Queue, Playlists, Recent, Lyrics |
+| `1 2 3 4 5` | player views: Home, Queue, Library, Recent, Lyrics |
 | `L` | Lyrics tab |
 | `E` | equaliser |
 | `V` | video window |
 | `F` | open the full player (card only) |
+| `K` | karaoke (full player); inside it `←`/`→` previous/next line, `[ ]` timing, `T` another match, `K`/`Esc` leave |
 
 From anywhere, add to `~/.config/hypr/bindings.lua`:
 

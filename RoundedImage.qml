@@ -32,6 +32,10 @@ Item {
     asynchronous: true
     visible: false
     layer.enabled: true
+    // Rendered at twice the item size, so the art stays sharp when the full
+    // player is scaled up on a big screen or the output is HiDPI.
+    layer.textureSize: Qt.size(Math.ceil(width * 2), Math.ceil(height * 2))
+    layer.smooth: true
   }
 
   Rectangle {
@@ -41,6 +45,7 @@ Item {
     visible: false
     layer.enabled: true
     layer.smooth: true
+    layer.textureSize: Qt.size(Math.ceil(width * 2), Math.ceil(height * 2))
   }
 
   MultiEffect {
