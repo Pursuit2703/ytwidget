@@ -10,7 +10,7 @@ import "Api.js" as Api
 // the seek bar in the middle, the views and sound controls on the right.
 //
 // It follows its own width:
-//   wide (>= 900)    one row, the layout above
+//   wide (>= 960)    one row, the layout above
 //   narrow           two rows: track + transport, then seek + tools
 //   tiny (< 520)     two rows, shuffle/repeat and the volume slider drop out
 //                    (S/R and the arrow keys still work)
@@ -41,7 +41,7 @@ Rectangle {
 
   readonly property color fg: Color.foreground
   readonly property color fgDim: Qt.darker(Color.foreground, 1.6)
-  readonly property bool wide: width >= Style.space(900)
+  readonly property bool wide: width >= Style.space(960)
   readonly property bool tiny: width < Style.space(520)
   readonly property bool hasTrack: !!(service && service.hasTrack)
 
@@ -289,11 +289,13 @@ Rectangle {
     Item {
       id: wideLeft
       Layout.preferredWidth: Style.space(300)
+      Layout.minimumWidth: Style.space(180)
       Layout.fillHeight: true
     }
     ColumnLayout {
       Layout.fillWidth: true
       Layout.maximumWidth: Style.space(680)
+      Layout.minimumWidth: transport.implicitWidth
       Layout.alignment: Qt.AlignHCenter
       spacing: Style.space(4)
       Item { id: wideTransport; Layout.alignment: Qt.AlignHCenter; implicitWidth: transport.implicitWidth; implicitHeight: transport.implicitHeight }
@@ -301,7 +303,9 @@ Rectangle {
     }
     Item {
       id: wideRight
-      Layout.preferredWidth: Style.space(300)
+      // Never narrower than the tools, so they can't spill over the transport.
+      Layout.preferredWidth: Math.max(Style.space(300), tools.implicitWidth)
+      Layout.minimumWidth: tools.implicitWidth
       Layout.fillHeight: true
     }
   }
@@ -348,14 +352,17 @@ Rectangle {
     }
   }
 
+  // ParentChange keeps an item's on-screen size by changing its scale, and the
+  // "more" popup is zoomed differently from the bar, so the tools came back
+  // from it blown up. Scale and rotation are pinned to 1 and 0 in every state.
   states: [
     State {
       name: "wide"
       when: root.wide
-      ParentChange { target: trackInfo; parent: wideLeft }
-      ParentChange { target: transport; parent: wideTransport }
-      ParentChange { target: seek; parent: wideSeek }
-      ParentChange { target: tools; parent: wideRight }
+      ParentChange { target: trackInfo; scale: 1; rotation: 0; parent: wideLeft }
+      ParentChange { target: transport; scale: 1; rotation: 0; parent: wideTransport }
+      ParentChange { target: seek; scale: 1; rotation: 0; parent: wideSeek }
+      ParentChange { target: tools; scale: 1; rotation: 0; parent: wideRight }
       PropertyChanges { trackInfo { x: 0; y: (wideLeft.height - trackInfo.height) / 2; width: wideLeft.width; height: trackInfo.implicitHeight } }
       PropertyChanges { transport { x: 0; y: 0 } }
       PropertyChanges { seek { x: 0; y: 0; width: wideSeek.width } }
@@ -364,10 +371,10 @@ Rectangle {
     State {
       name: "narrow"
       when: !root.wide
-      ParentChange { target: trackInfo; parent: narrowInfo }
-      ParentChange { target: transport; parent: narrowTransport }
-      ParentChange { target: seek; parent: narrowSeek }
-      ParentChange { target: tools; parent: moreHolder }
+      ParentChange { target: trackInfo; scale: 1; rotation: 0; parent: narrowInfo }
+      ParentChange { target: transport; scale: 1; rotation: 0; parent: narrowTransport }
+      ParentChange { target: seek; scale: 1; rotation: 0; parent: narrowSeek }
+      ParentChange { target: tools; scale: 1; rotation: 0; parent: moreHolder }
       PropertyChanges { trackInfo { x: 0; y: 0; width: narrowInfo.width; height: trackInfo.implicitHeight } }
       PropertyChanges { transport { x: 0; y: 0 } }
       PropertyChanges { seek { x: 0; y: 0; width: narrowSeek.width } }
