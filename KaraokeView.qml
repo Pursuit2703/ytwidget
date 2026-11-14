@@ -126,6 +126,7 @@ Item {
   // player's position reports, so the fill sweeps smoothly instead of in
   // 50 ms steps (same as the lyric strip in the bar).
   property real localT: -1
+  property int syncLeadMs: 100
   readonly property real liveProgress: {
     if (root.inBreak || root.cur < 0 || root.cur + 1 >= root.lines.length) return root.inBreak ? 0 : 1
     var a = Number(root.lines[root.cur].ms), b = Number(root.lines[root.cur + 1].ms)
@@ -139,7 +140,9 @@ Item {
       var playing = !!svc.effectivePlaying
       var target = Number(svc.positionMs || 0)
       if (playing && svc.positionStampMs > 0) target += Math.max(0, Date.now() - svc.positionStampMs)
-      target += clock.leadMs - clock.offsetMs
+      // A touch ahead: position reports reach us slightly after the fact,
+      // so the raw estimate runs late by about that much.
+      target += root.syncLeadMs - clock.offsetMs
       if (root.localT < 0 || Math.abs(target - root.localT) > 1200) root.localT = target
       else {
         if (playing) root.localT += frameTime * 1000
