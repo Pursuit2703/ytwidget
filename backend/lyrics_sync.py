@@ -34,15 +34,15 @@ WINDOW_AFTER_MS = 150
 
 ANALYSE_EVERY_S = 5.0
 MIN_LINES = 10             # lines heard before any verdict
-DOUBT_LINES = 20           # lines heard before calling it doubtful
+DOUBT_LINES = 24           # lines heard before calling it doubtful
 GIVE_UP_S = 240.0          # stop listening after this much audio
 APPLY_IF_OFF_BY_MS = 250
 
 CLEAR_Z = 3.5
 CLEAR_RATIO = 1.15
-DOUBT_Z = 2.5
+DOUBT_Z = 1.3
 CLEAR_HITS = 0.7          # share of lines that land on a strong rise
-DOUBT_HITS = 0.45
+DOUBT_HITS = 0.35
 
 
 def onset_curve(frames: list[tuple[float, float]]) -> tuple[float, list[float]]:

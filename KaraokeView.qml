@@ -394,7 +394,7 @@ Item {
         visible: !root.narrow && text !== ""
         anchors.verticalCenter: parent.verticalCenter
         rightPadding: Style.space(12)
-        text: root.lyrics && root.lyrics.sync && root.lyrics.sync.status === "doubtful"
+        text: root.lyrics && root.lyrics.sync && root.lyrics.sync.status === "doubtful" && Number(root.lyrics.sync.z) < 1.3
           ? "Timing doesn't match this song" : ""
         color: Color.urgent
         font.family: Style.font.family

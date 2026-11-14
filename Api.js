@@ -80,6 +80,6 @@ function syncNote(l) {
     var ms = Number(sy.offsetMs || 0)
     return "auto-synced " + (ms > 0 ? "+" : ms < 0 ? "\u2212" : "") + (Math.abs(ms) / 1000).toFixed(2).replace(/0$/, "") + " s"
   }
-  if (sy.status === "doubtful") return "timing doesn't match the song — try another match"
+  if (sy.status === "doubtful" && Number(sy.z) < 1.3) return "timing doesn't match the song — try another match"
   return ""
 }

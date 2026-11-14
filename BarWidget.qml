@@ -88,8 +88,12 @@ BarWidget {
   readonly property real lyricsWidthSetting: Math.max(0, Number(root.setting("lyricsWidth", 0)) || 0)
   // The audio check found the timing doesn't fit this song: show the usual
   // title and controls instead of lyrics that would be wrong.
+  // Only a clear verdict hides them: songs where the voice hardly stops
+  // (rap, dense pop) give the check few clean onsets and a middling score
+  // even when the lyrics are right.
   readonly property bool barLyricsDoubtful: !!(root.ytService && root.ytService.lyrics
-    && root.ytService.lyrics.sync && root.ytService.lyrics.sync.status === "doubtful")
+    && root.ytService.lyrics.sync && root.ytService.lyrics.sync.status === "doubtful"
+    && Number(root.ytService.lyrics.sync.z) < 1.3)
   readonly property bool barLyricsActive: root.lyricsInBar && root.hasTrack && root.lastError === ""
     && barLyricsClock.synced && barLyricsClock.lines.length > 0 && !root.barLyricsDoubtful
   readonly property bool barLyricsWide: root.lyricsWidthSetting > 0 && root.barLyricsActive && root.playing

@@ -1864,8 +1864,8 @@ Item {
 
                   Text {
                     Layout.fillWidth: true
-                    visible: text !== "" && (!root.shortWin || (root.service && root.service.lyrics && root.service.lyrics.sync && root.service.lyrics.sync.status === "doubtful"))
-                    color: root.service && root.service.lyrics && root.service.lyrics.sync && root.service.lyrics.sync.status === "doubtful" ? Color.urgent : root.fgDim
+                    visible: text !== "" && (!root.shortWin || (root.service && root.service.lyrics && root.service.lyrics.sync && root.service.lyrics.sync.status === "doubtful" && Number(root.service.lyrics.sync.z) < 1.3))
+                    color: root.service && root.service.lyrics && root.service.lyrics.sync && root.service.lyrics.sync.status === "doubtful" && Number(root.service.lyrics.sync.z) < 1.3 ? Color.urgent : root.fgDim
                     text: {
                       var l = root.service ? root.service.lyrics : null
                       if (!l || !l.title || (l.status !== "synced" && l.status !== "plain")) return ""
